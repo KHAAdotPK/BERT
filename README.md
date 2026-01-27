@@ -6,6 +6,18 @@ This repository contains a **Masked Language Model (MLM)** implementation built 
 
 While most implementations rely on high level libraries (like HuggingFace), this project is a **"Mechanical Deep Dive."** Every moving part; from the binary data pipeline to the Cross-Entropy loss is implemented manually to master the internal architecture of the Transformer Encoder.
 
+#### Hybrid Training: Skip-gram Warm-up → BERT Pre-training Initialization
+
+A key efficiency and performance feature of this implementation is **hybrid training**.  
+
+Instead of starting the Transformer encoder embeddings from pure random initialization (which can lead to slow convergence on small/custom datasets), I first train a **shallow Skip-gram model** on the same medical symptom corpus to learn high quality static word vectors. These pre-trained Skip-gram embeddings are then used to **initialize** the BERT embedding layer.
+
+This is a classic **pre-training initialization** strategy:  
+- The shallow model (Skip-gram) quickly captures basic co-occurrence semantics.  
+- These informed weights "warm up" the deep bidirectional model (BERT-style MLM), helping it converge faster and reach better contextual representations with fewer epochs / less compute.
+
+This technique is especially valuable on domain-specific data (like medical symptoms) where general purpose pre-trained embeddings may not exist or may underperform.
+
 ### 🧠 Architectural Shift: Bidirectional vs. Autoregressive
 
 Unlike my previous [Transformer-Encoder-Decoder](https://github.com/KHAAdotPK/Transformer-Encoder-Decoder) project, this BERT implementation is **NOT Autoregressive**.
@@ -30,9 +42,9 @@ By removing the causal mask, the Encoder can create a much richer representation
 
 ### ⏭ What is Next
 
-1. **Lego-Brick Integration:** Pull the Transformer Encoder layers from the sister repository into this pipeline.
+1. **Lego Brick Integration:** Pull the Transformer Encoder layers from the sister repository into this pipeline.
 2. **Training Loop:** Run the first epoch of MLM training to see the "Pain" (Loss) value decrease as the model learns to fill in the blanks.
-3. **Hyper-Parameter Tuning:** Experiment with averaging  and  weights to see the effect on contextual understanding.
+3. **Hyper Parameter Tuning:** Experiment with averaging  and  weights to see the effect on contextual understanding.
 4. **Visualization:** Create a console-based "Live View" where you can see the model's top-3 guesses for a masked medical term in real-time.
 
 ### 📊 Technical Specs

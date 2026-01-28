@@ -25,11 +25,11 @@ int main(int argc, char* argv[])
 
     // --- Training Tensors (The Triple-Buffer) ---
     // The 'Ground Truth': Immutable copy of original vocabulary IDs for the current sequence.
-    cc_tokenizer::string_character_traits<char>::int_type* original = NULL; 
-    // The 'Encoder Input': Contains [MASK] IDs, Random Swaps, or Original IDs for the model to process. 
-    cc_tokenizer::string_character_traits<char>::int_type* input = NULL; 
+    Collective<cc_tokenizer::string_character_traits<char>::int_type> original;
+    // The 'Encoder Input': Contains [MASK] IDs, Random Swaps, or Original IDs for the model to process.     
+    Collective<cc_tokenizer::string_character_traits<char>::int_type> input;
     // The 'Loss Target': Stores original IDs for mutated tokens; set to -100 for all context/padding tokens.
-    cc_tokenizer::string_character_traits<char>::int_type* label = NULL; 
+    Collective<cc_tokenizer::string_character_traits<char>::int_type> label;
 
     // --- Metadata & Sequence Counters ---
     // Maximum Number of Tokens Per Line (Total capacity of the buffer/tensor).
@@ -37,7 +37,19 @@ int main(int argc, char* argv[])
     // Number of Tokens Per Line (Actual length of the current sequence before padding).
     cc_tokenizer::string_character_traits<char>::size_type ntpl; 
     // Number of Masked Tokens Per Line (The 15% quota target for the current sequence).
-    cc_tokenizer::string_character_traits<char>::size_type nmtpl; 
+    cc_tokenizer::string_character_traits<char>::size_type nmtpl;
+    
+    // --- Model & Training State ---
+    // The 'Encoder Output': A 3D tensor (Batch x SeqLen x Features) holding the contextual embeddings.
+    // This is the "frozen" state from the pre-trained encoder that we feed into the MLM Head.
+    Collective<double> eoutput;
+
+    // --- Array Dimensions ---
+    DIMENSIONSOFARRAY dimensionsOfArray;
+    DIMENSIONS dimensions;
+
+    // To store the name of a file, can be used as a scrtch pad to store any file name
+    cc_tokenizer::String<char> filename;
     
     try
     {
@@ -53,7 +65,7 @@ int main(int argc, char* argv[])
         std::cout<< "Reading pre-trained word vectors from the file..." << std::endl;
         w1_file_name = cc_tokenizer::String<char>(W1_PATH);
     
-        std::cout<< "Creatingoriginalweights from the pre-trained word vectors..." << std::endl;
+        std::cout<< "Creating original weights from the pre-trained word vectors..." << std::endl;
         W1 = Collective<double>(NULL, DIMENSIONS{SKIP_GRAM_EMBEDDNG_VECTOR_SIZE, vocab.numberOfUniqueTokens(), NULL, NULL});    
         READ_W_BIN_NEW_ONE(W1, w1_file_name, double);
 
@@ -66,13 +78,13 @@ int main(int argc, char* argv[])
         ptr[0] = 1; // Batch size
         ptr[1] = 7; // Number of sequences per line
         ptr[2] = SKIP_GRAM_EMBEDDNG_VECTOR_SIZE; // Embedding vector size, number of features per sequence
-        DIMENSIONSOFARRAY dimensionsOfArray(ptr, 3);
-        DIMENSIONS dimensions = DIMENSIONS(dimensionsOfArray);
+        dimensionsOfArray = DIMENSIONSOFARRAY(ptr, 3);
+        dimensions = DIMENSIONS(dimensionsOfArray);
         ptr = (cc_tokenizer::string_character_traits<char>::size_type*) cc_tokenizer::allocator<double>().allocate(dimensions.getN());
-        Collective<double> eoutput = Collective<double>((double*)ptr, dimensions);
+        eoutput = Collective<double>((double*)ptr, dimensions);
 
         // File name of the encoder output
-        cc_tokenizer::String<char> filename("./../data/weights/encoder_output.dat");
+        filename = cc_tokenizer::String<char>(ENCODER_OUTPUT_PATH);
                     
         indices = cc_tokenizer::allocator<cc_tokenizer::string_character_traits<char>::int_type>().allocate(mntpl);
         for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < mntpl; i++)
@@ -85,17 +97,15 @@ int main(int argc, char* argv[])
         {
             vocab_indices[i] = i + INDEX_ORIGINATES_AT_VALUE;
         }
+        
+        ptr =  reinterpret_cast<cc_tokenizer::string_character_traits<char>::size_type*>( cc_tokenizer::allocator<cc_tokenizer::string_character_traits<char>::int_type>().allocate(mntpl) );
+        original = Collective<cc_tokenizer::string_character_traits<char>::int_type>(reinterpret_cast<cc_tokenizer::string_character_traits<char>::int_type*>(ptr), DIMENSIONS{mntpl, 1, NULL, NULL});
+        
+        ptr =  reinterpret_cast<cc_tokenizer::string_character_traits<char>::size_type*>( cc_tokenizer::allocator<cc_tokenizer::string_character_traits<char>::int_type>().allocate(mntpl) );
+        input = Collective<cc_tokenizer::string_character_traits<char>::int_type>(reinterpret_cast<cc_tokenizer::string_character_traits<char>::int_type*>(ptr), DIMENSIONS{mntpl, 1, NULL, NULL});      
 
-        original = cc_tokenizer::allocator<cc_tokenizer::string_character_traits<char>::int_type>().allocate(mntpl);
-
-        input = cc_tokenizer::allocator<cc_tokenizer::string_character_traits<char>::int_type>().allocate(mntpl);        
-        //memset(mask_damage_keep_indices, 0, mntpl * sizeof(cc_tokenizer::string_character_traits<char>::int_type));
-
-        label = cc_tokenizer::allocator<cc_tokenizer::string_character_traits<char>::int_type>().allocate(mntpl);
-        /*for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < mntpl; i++)
-        {
-            label[i] = IGNORE_INDEX;
-        }*/
+        ptr =  reinterpret_cast<cc_tokenizer::string_character_traits<char>::size_type*>( cc_tokenizer::allocator<cc_tokenizer::string_character_traits<char>::int_type>().allocate(mntpl) );
+        label = Collective<cc_tokenizer::string_character_traits<char>::int_type>(reinterpret_cast<cc_tokenizer::string_character_traits<char>::int_type*>(ptr), DIMENSIONS{mntpl, 1, NULL, NULL});
 
         /*
             The 80-10-10 Rule Implementation: For each of the lines, pick MLM_PROBABILITY of the tokens. For each "picked" token:
@@ -116,36 +126,35 @@ int main(int argc, char* argv[])
             ntpl = parser.get_total_number_of_tokens();                               // Number of tokens per line
             nmtpl = std::ceil(ntpl * MLM_PROBABILITY);                                // Number of masked tokens per line
 
-            memset(original, 0, mntpl * sizeof(cc_tokenizer::string_character_traits<char>::int_type));            
-            // Initialize the mask_damage_keep_indices array with IGNORE_INDEX
-            /*for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < ntpl; i++)
+            for (cc_tokenizer::string_character_traits<char>::size_type i = ntpl; i < mntpl; i++)
             {
-                mask_damage_keep_indices[i] = IGNORE_INDEX;
-            }*/
+                original[i] = 0;
+            }          
             {
                 int i = 0;
                 while (parser.go_to_next_token() != cc_tokenizer::string_character_traits<char>::eof())
                 {
-                    original[i] = vocab(parser.get_current_token());
+                    original[i] = vocab(parser.get_current_token());                    
                     input[i] = original[i];
+
                     i++;
                 }
                 parser.reset(TOKENS);
             }
             // Initialize the mask_damage_keep_indices array with 0
-            memset(input + ntpl, 0, (mntpl - ntpl) * sizeof(cc_tokenizer::string_character_traits<char>::int_type));
-            // Uncomment to debug
-            /*for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < mntpl; i++)
+            for (cc_tokenizer::string_character_traits<char>::size_type i = ntpl; i < mntpl; i++)
             {
-                printf("%d ", mask_damage_keep_indices[i]);
+                input[i] = 0;
             }
-            std::cout<< std::endl;*/
 
-            memset(label, 0, mntpl * sizeof(cc_tokenizer::string_character_traits<char>::int_type));
             // Initialize the label array with IGNORE_INDEX
             for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < ntpl; i++)
-            {
+            {        
                 label[i] = IGNORE_INDEX;
+            }
+            for (cc_tokenizer::string_character_traits<char>::size_type i = ntpl; i < mntpl; i++)
+            {                
+                label[i] = 0;
             }
 
             // Line by line read of the encoder output
@@ -181,13 +190,13 @@ int main(int argc, char* argv[])
                 {
                     if (indices[j] < ntpl) // Creating a Mutation Map
                     {   
-                        std::cout<< /*vocab[indices[j] + INDEX_ORIGINATES_AT_VALUE].c_str()*/ parser.get_token_by_number(indices[j] + 1).c_str() << " ["; 
+                        std::cout<< parser.get_token_by_number(indices[j] + 1).c_str() << " ["; 
 
                         std::shuffle(choice_array, choice_array + 3, gen);
 
                         if (choice_array[0] == 80)
                         {
-                            std::cout<< "MASKED";                            
+                            std::cout<< "MASKED";                                                                   
                             label[indices[j]] = input[indices[j]];
                             input[indices[j]] = MASK_TOKEN_ID;
                         }
@@ -195,16 +204,16 @@ int main(int argc, char* argv[])
                         {                           
                             std::shuffle(vocab_indices, vocab_indices + vocab.numberOfUniqueTokens(), gen); 
                             std::cout<< "RANDOM/DAMAGE";                            
-                            //input[indices[j]] = RANDOM_TOKEN_ID;
-                            //label[indices[j]] = vocab_indices[0];
+ 
                             label[indices[j]] = input[indices[j]];
                             input[indices[j]] = vocab_indices[0];
                         }
                         else if (choice_array[0] == 100)
                         {                            
                             std::cout<< "KEEP"; 
+                                
                             label[indices[j]] = input[indices[j]];
-                            input[indices[j]] = KEEP_TOKEN_ID;                           
+                            input[indices[j]] = KEEP_TOKEN_ID;
                         }
 
                         std::cout<< "] ";    
@@ -216,17 +225,17 @@ int main(int argc, char* argv[])
             }
         
             std::cout<< std::endl;
-            for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < mntpl; i++)
+            for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < original.getShape().getN(); i++)
             {
                 printf("%d ", original[i]);
             }
             std::cout<< std::endl;                        
-            for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < mntpl; i++)
+            for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < input.getShape().getN(); i++)
             {
                 printf("%d ", input[i]);
             }            
             std::cout<< std::endl;
-            for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < mntpl; i++)
+            for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < label.getShape().getN(); i++)
             {
                 printf("%d ", label[i]);
             }            
@@ -237,9 +246,6 @@ int main(int argc, char* argv[])
         cc_tokenizer::allocator<cc_tokenizer::string_character_traits<char>::int_type>().deallocate(indices, mntpl);
         cc_tokenizer::allocator<cc_tokenizer::string_character_traits<char>::int_type>().deallocate(choice_array, 3);
         cc_tokenizer::allocator<cc_tokenizer::string_character_traits<char>::int_type>().deallocate(vocab_indices, vocab.numberOfUniqueTokens());
-        cc_tokenizer::allocator<cc_tokenizer::string_character_traits<char>::int_type>().deallocate(original, mntpl);
-        cc_tokenizer::allocator<cc_tokenizer::string_character_traits<char>::int_type>().deallocate(input, mntpl);
-        cc_tokenizer::allocator<cc_tokenizer::string_character_traits<char>::int_type>().deallocate(label, mntpl);
 
         eoutput.close_read();
     }
@@ -249,11 +255,11 @@ int main(int argc, char* argv[])
     }
     catch (std::length_error& e)
     {
-        std::cerr << "main() -> " << e.what() << std::endl;
+        std::cerr << "main() Error: " << e.what() << std::endl;
     }
     catch (std::bad_alloc& e)
     {
-        std::cerr << "main() -> " << e.what() << std::endl;
+        std::cerr << "main() Error: " << e.what() << std::endl;
     }
     
     return 0;

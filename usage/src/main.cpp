@@ -194,26 +194,40 @@ int main(int argc, char* argv[])
 
                         std::shuffle(choice_array, choice_array + 3, gen);
 
-                        if (choice_array[0] == 80)
+                        if (choice_array[0] == 80) // Maksed
                         {
+                            /* *   STRATEGY: Explicit Masking
+                               *   Replace the input token with a dedicated [MASK] ID.
+                               *   Challenge: Forces the model to reconstruct the token purely from bidirectional context.
+                             */ 
                             std::cout<< "MASKED";                                                                   
-                            label[indices[j]] = input[indices[j]];
-                            input[indices[j]] = MASK_TOKEN_ID;
+                            label[indices[j]] = input[indices[j]]; // Store original ID for loss calculation
+                            input[indices[j]] = MASK_TOKEN_ID;     // Replace with [MASK] symbol
                         }
-                        else if (choice_array[0] == 90)                        
-                        {                           
+                        else if (choice_array[0] == 90) // Random/Damage                        
+                        { 
+                            /* * STRATEGY: Noise Injection (Damage)
+                               * Replace the input token with a random word from the vocabulary.
+                               * Challenge: Prevents the model from assuming that only [MASK] symbols need error correction.
+                               * It must verify if the word actually "fits" the surrounding symptoms.
+                             */
+                            std::cout<< "RANDOM/DAMAGE";
                             std::shuffle(vocab_indices, vocab_indices + vocab.numberOfUniqueTokens(), gen); 
-                            std::cout<< "RANDOM/DAMAGE";                            
- 
-                            label[indices[j]] = input[indices[j]];
-                            input[indices[j]] = vocab_indices[0];
+                            label[indices[j]] = input[indices[j]]; // Store original ID for loss calculation
+                            input[indices[j]] = vocab_indices[0];  // Inject random word noise 
                         }
-                        else if (choice_array[0] == 100)
-                        {                            
-                            std::cout<< "KEEP"; 
-                                
-                            label[indices[j]] = input[indices[j]];
-                            input[indices[j]] = KEEP_TOKEN_ID;
+                        else if (choice_array[0] == 100) // Keep
+                        {  
+                             /* * STRATEGY: Identity Mapping (Keep)
+                               * Leave the input token unchanged, but still include it in the label/loss targets.
+                               * Challenge: The "magic" of BERT. The model sees the correct word but doesn't 
+                               * know if it is a 'test' or just context. This biases the representation 
+                               * toward the actual observed word.
+                             */                         
+                            std::cout<< "KEEP";                                 
+                            /*label[indices[j]] = input[indices[j]];
+                            input[indices[j]] = KEEP_TOKEN_ID;*/
+                            label[indices[j]] = input[indices[j]]; // The 'label' gets the original ID, and 'input' remains as it was (the original ID).
                         }
 
                         std::cout<< "] ";    

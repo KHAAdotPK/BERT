@@ -17,6 +17,7 @@
 #define TRAINING_DATA_PATH "./../data/vocabulary/INPUT.txt"
 #define W1_PATH "./../data/weights/w1p.dat"
 #define ENCODER_OUTPUT_PATH "./../data/weights/encoder_output.dat"
+#define ORIGINAL_INPUT_LABEL_PATH = "./../data/weights/original_input_label.dat"
 
 #define MLM_OUTPUT_PATH "./../data/weights/mlm_output.dat"
 #define MLM_LABELS_PATH "./../data/weights/mlm_labels.dat"
@@ -160,4 +161,6 @@
 #define SKIP_GRAM_EMBEDDNG_VECTOR_SIZE 8
 
 #endif
+
+#include "./../../Implementation/MLM/mlm.hh"
 

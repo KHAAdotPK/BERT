@@ -15,6 +15,8 @@ int main(int argc, char* argv[])
     CORPUS vocab;
     Collective<double> W1;
 
+    MLM<double> mlm;
+
     // --- Indexing & Probability Pools ---
     // Pool of available positions (0 to mntpl-1) used to select unique token indices for masking.
     cc_tokenizer::string_character_traits<char>::int_type* indices = NULL; 
@@ -23,7 +25,7 @@ int main(int argc, char* argv[])
     // Shuffled pool of all valid Vocabulary IDs used to provide "Random Damage" tokens.
     cc_tokenizer::string_character_traits<char>::int_type* vocab_indices = NULL; 
 
-    // --- Training Tensors (The Triple-Buffer) ---
+    // --- Training Tensors (The Triple Buffer) ---
     // The 'Ground Truth': Immutable copy of original vocabulary IDs for the current sequence.
     Collective<cc_tokenizer::string_character_traits<char>::int_type> original;
     // The 'Encoder Input': Contains [MASK] IDs, Random Swaps, or Original IDs for the model to process.     
@@ -121,42 +123,38 @@ int main(int argc, char* argv[])
         // Random number generator, used for shuffling the indices, choice_array and selecting random words from the vocabulary for damaging the encoder output
         static std::mt19937 gen(std::random_device{}());
     
+        // Implementation of the triple buffer
         while (parser.go_to_next_line() != cc_tokenizer::string_character_traits<char>::eof())
         { 
-            ntpl = parser.get_total_number_of_tokens();                               // Number of tokens per line
-            nmtpl = std::ceil(ntpl * MLM_PROBABILITY);                                // Number of masked tokens per line
+            ntpl = parser.get_total_number_of_tokens(); // Number of tokens per line
+            nmtpl = std::ceil(ntpl * MLM_PROBABILITY); // Number of masked tokens per line
 
+            std::shuffle(indices, indices + mntpl, gen); // Shuffling the indices
+
+            /*
+                Zero out the extra space in the original, input and label arrays
+             */
             for (cc_tokenizer::string_character_traits<char>::size_type i = ntpl; i < mntpl; i++)
             {
                 original[i] = 0;
-            }          
+                input[i] = 0;
+                label[i] = 0;
+            }  
+            
             {
                 int i = 0;
-                while (parser.go_to_next_token() != cc_tokenizer::string_character_traits<char>::eof())
+                while (parser.go_to_next_token() != cc_tokenizer::string_character_traits<char>::eof()) // Number of tokens in this line, there are ntpl many tokens in each line
                 {
-                    original[i] = vocab(parser.get_current_token());                    
-                    input[i] = original[i];
+                    original[i] = vocab(parser.get_current_token()); // Store the original token ID as the 'Target' (Label)
+                    input[i] = original[i]; // Copy the original token ID to the input array
+
+                    label[i] = IGNORE_INDEX; // Initialize the label array with IGNORE_INDEX
 
                     i++;
                 }
                 parser.reset(TOKENS);
             }
-            // Initialize the mask_damage_keep_indices array with 0
-            for (cc_tokenizer::string_character_traits<char>::size_type i = ntpl; i < mntpl; i++)
-            {
-                input[i] = 0;
-            }
-
-            // Initialize the label array with IGNORE_INDEX
-            for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < ntpl; i++)
-            {        
-                label[i] = IGNORE_INDEX;
-            }
-            for (cc_tokenizer::string_character_traits<char>::size_type i = ntpl; i < mntpl; i++)
-            {                
-                label[i] = 0;
-            }
-
+ 
             // Line by line read of the encoder output
             eoutput.read(filename);
             // Uncomment to debug
@@ -169,9 +167,6 @@ int main(int argc, char* argv[])
                 std::cout<< eoutput[i] << " ";
             }
             std::cout<< std::endl;*/
-
-            std::shuffle(indices, indices + mntpl, gen); // Shuffling the indices
-            std::shuffle(vocab_indices, vocab_indices + vocab.numberOfUniqueTokens(), gen); // Shuffling the vocabulary indices
                          
             /*
                 Strategy: Unique Mask Selection via Shuffled Index Pool
@@ -206,13 +201,14 @@ int main(int argc, char* argv[])
                         }
                         else if (choice_array[0] == 90) // Random/Damage                        
                         { 
+                            std::shuffle(vocab_indices, vocab_indices + vocab.numberOfUniqueTokens(), gen); // Shuffling the vocabulary indices
+
                             /* * STRATEGY: Noise Injection (Damage)
                                * Replace the input token with a random word from the vocabulary.
                                * Challenge: Prevents the model from assuming that only [MASK] symbols need error correction.
                                * It must verify if the word actually "fits" the surrounding symptoms.
                              */
                             std::cout<< "RANDOM/DAMAGE";
-                            std::shuffle(vocab_indices, vocab_indices + vocab.numberOfUniqueTokens(), gen); 
                             label[indices[j]] = input[indices[j]]; // Store original ID for loss calculation
                             input[indices[j]] = vocab_indices[0];  // Inject random word noise 
                         }
@@ -224,9 +220,7 @@ int main(int argc, char* argv[])
                                * know if it is a 'test' or just context. This biases the representation 
                                * toward the actual observed word.
                              */                         
-                            std::cout<< "KEEP";                                 
-                            /*label[indices[j]] = input[indices[j]];
-                            input[indices[j]] = KEEP_TOKEN_ID;*/
+                            std::cout<< "KEEP";                                  
                             label[indices[j]] = input[indices[j]]; // The 'label' gets the original ID, and 'input' remains as it was (the original ID).
                         }
 
@@ -253,7 +247,9 @@ int main(int argc, char* argv[])
             {
                 printf("%d ", label[i]);
             }            
-            std::cout<< std::endl;   
+            std::cout<< std::endl;
+            
+            mlm.train(original, input, label, eoutput);            
         }
 
         // Garbage collection

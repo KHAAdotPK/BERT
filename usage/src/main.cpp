@@ -15,7 +15,7 @@ int main(int argc, char* argv[])
     CORPUS vocab;
     Collective<double> W1;
 
-    MLM<double> mlm;
+    MLM<double, cc_tokenizer::string_character_traits<char>::int_type> mlm;
 
     // --- Indexing & Probability Pools ---
     // Pool of available positions (0 to mntpl-1) used to select unique token indices for masking.
@@ -87,6 +87,8 @@ int main(int argc, char* argv[])
 
         // File name of the encoder output
         filename = cc_tokenizer::String<char>(ENCODER_OUTPUT_PATH);
+
+        mlm = MLM<double, cc_tokenizer::string_character_traits<char>::int_type>(vocab);
                     
         indices = cc_tokenizer::allocator<cc_tokenizer::string_character_traits<char>::int_type>().allocate(mntpl);
         for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < mntpl; i++)

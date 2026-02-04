@@ -12,24 +12,22 @@
     Collective<E> w_mlm; // Projection weights: [d_model x vocab_size]
     Collective<E> b_mlm; // Bias vector: [vocab_size]
 
-    E loss;
-
     public:
         MLM();
         MLM(CORPUS&, cc_tokenizer::string_character_traits<char>::size_type = SKIP_GRAM_EMBEDDNG_VECTOR_SIZE);
 
         ~MLM();
-        void train(Collective<F>&, Collective<F>&, Collective<F>&, Collective<E>&);    
+        E train(Collective<F>&, Collective<F>&, Collective<F>&, Collective<E>&);    
  };
 
  template <typename E = double, typename F = cc_tokenizer::string_character_traits<char>::int_type>
- MLM<E, F>::MLM() : w_mlm(), b_mlm(), loss()
+ MLM<E, F>::MLM() : w_mlm(), b_mlm()
  {
     
  }
 
  template <typename E = double, typename F = cc_tokenizer::string_character_traits<char>::int_type>
- MLM<E, F>::MLM(CORPUS& vocab, cc_tokenizer::string_character_traits<char>::size_type d_model) : loss()
+ MLM<E, F>::MLM(CORPUS& vocab, cc_tokenizer::string_character_traits<char>::size_type d_model)
  {     
     // Initialize weights and biases
 
@@ -76,7 +74,7 @@
   * 4. Backpropagation: Update $W_{mlm}$ and $b_{mlm}$ using the gradient. 
  */
 template <typename E = double, typename F = cc_tokenizer::string_character_traits<char>::int_type>
-void MLM<E, F>::train(Collective<F>& original, Collective<F>& input, Collective<F>& label, Collective<E>& eo) throw (ala_exception) 
+E MLM<E, F>::train(Collective<F>& original, Collective<F>& input, Collective<F>& label, Collective<E>& eo) throw (ala_exception) 
 {
     /*for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < w_mlm.getShape().getN(); i++)
     {
@@ -242,7 +240,7 @@ void MLM<E, F>::train(Collective<F>& original, Collective<F>& input, Collective<
     /*std::cout<< "Columns db = " << dLogits_db.getShape().getNumberOfColumns() << std::endl;
     std::cout<< "Rows = " << dLogits_db.getShape().getNumberOfRows() << std::endl;*/
 
-    double learning_rate = 0.01; // Or whatever alpha you prefer
+    double learning_rate = 0.05; // Or whatever alpha you prefer
     /*
         Step 8: The Weight Update (The Finale)
         --------------------------------------
@@ -272,7 +270,7 @@ void MLM<E, F>::train(Collective<F>& original, Collective<F>& input, Collective<
     // b_mlm = b_mlm - learning_rate * dLogits_db; 
     b_mlm = b_mlm - (dLogits_db * learning_rate);
 
-    std::cout<< "Loss = " << loss << std::endl;
+    /*std::cout<< "Loss = " << loss << std::endl;*/
 
     /*for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < label.getShape().getN(); i++)
     {
@@ -350,5 +348,7 @@ void MLM<E, F>::train(Collective<F>& original, Collective<F>& input, Collective<
             - $$\text{loss} = -\sum_{i=1}^{n} \text{label}_i \log(\text{probs}_i)$$
 
         - Backpropagation: Update $W_{mlm}$ and $b_{mlm}$ using the gradient. */     
+
+    return loss;
 }
 #endif // KHAA_PK_BERT_MLM_HH

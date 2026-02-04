@@ -10,6 +10,9 @@
 #include "./../../Implementation/lib/Corpus/corpus.hh"
 #include "./../../Implementation/lib/Sundry/cooked_read_new.hh"
 #include "./../../Implementation/lib/read_write_weights/header.hh"
+#include "./../../Implementation/lib/argsv-cpp/lib/parser/parser.hh"
+
+#define COMMAND "verbose --verbose (optional)\n"
 
 #ifndef MLM_BERT_NO_MORE_AUTO_REGRESSIVE_MODEL // In C/C++ world donot travel without include guards; period
 #define MLM_BERT_NO_MORE_AUTO_REGRESSIVE_MODEL

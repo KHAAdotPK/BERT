@@ -7,6 +7,13 @@
 
 int main(int argc, char* argv[])
 {
+    ARG arg_verbose;
+    cc_tokenizer::csv_parser<cc_tokenizer::String<char>, char> argsv_parser(cc_tokenizer::String<char>(COMMAND));
+    FIND_ARG(argv, argc, argsv_parser, "--verbose", arg_verbose);
+
+    double loss = 0.0;
+    cc_tokenizer::string_character_traits<char>::size_type counter = 0;
+
     cc_tokenizer::string_character_traits<char>::size_type* ptr = NULL;
 
     cc_tokenizer::String<char> data; 
@@ -187,7 +194,11 @@ int main(int argc, char* argv[])
                 {
                     if (indices[j] < ntpl) // Creating a Mutation Map
                     {   
-                        std::cout<< parser.get_token_by_number(indices[j] + 1).c_str() << " ["; 
+
+                        if (arg_verbose.i)
+                        {
+                            std::cout<< parser.get_token_by_number(indices[j] + 1).c_str() << " ["; 
+                        }
 
                         std::shuffle(choice_array, choice_array + 3, gen);
 
@@ -197,7 +208,10 @@ int main(int argc, char* argv[])
                                *   Replace the input token with a dedicated [MASK] ID.
                                *   Challenge: Forces the model to reconstruct the token purely from bidirectional context.
                              */ 
-                            std::cout<< "MASKED";                                                                   
+                            if (arg_verbose.i)
+                            { 
+                                std::cout<< "MASKED";
+                            }
                             label[indices[j]] = input[indices[j]]; // Store original ID for loss calculation
                             input[indices[j]] = MASK_TOKEN_ID;     // Replace with [MASK] symbol
                         }
@@ -210,7 +224,10 @@ int main(int argc, char* argv[])
                                * Challenge: Prevents the model from assuming that only [MASK] symbols need error correction.
                                * It must verify if the word actually "fits" the surrounding symptoms.
                              */
-                            std::cout<< "RANDOM/DAMAGE";
+                            if (arg_verbose.i)
+                            {
+                                std::cout<< "RANDOM/DAMAGE";
+                            }
                             label[indices[j]] = input[indices[j]]; // Store original ID for loss calculation
                             input[indices[j]] = vocab_indices[0];  // Inject random word noise 
                         }
@@ -222,11 +239,17 @@ int main(int argc, char* argv[])
                                * know if it is a 'test' or just context. This biases the representation 
                                * toward the actual observed word.
                              */                         
-                            std::cout<< "KEEP";                                  
+                            if (arg_verbose.i)
+                            {
+                                std::cout<< "KEEP";
+                            }
                             label[indices[j]] = input[indices[j]]; // The 'label' gets the original ID, and 'input' remains as it was (the original ID).
                         }
 
-                        std::cout<< "] ";    
+                        if (arg_verbose.i)
+                        {
+                            std::cout<< "] ";
+                        }
                                              
                         pool_cursor = j + 1;
                         break;
@@ -234,24 +257,34 @@ int main(int argc, char* argv[])
                 }
             }
         
-            std::cout<< std::endl;
-            for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < original.getShape().getN(); i++)
+            if (arg_verbose.i)
             {
-                printf("%d ", original[i]);
+                std::cout<< std::endl;
+                for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < original.getShape().getN(); i++)
+                {
+                    printf("%d ", original[i]);
+                }
+                std::cout<< std::endl;                        
+                for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < input.getShape().getN(); i++)
+                {
+                    printf("%d ", input[i]);
+                }            
+                std::cout<< std::endl;
+                for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < label.getShape().getN(); i++)
+                {
+                    printf("%d ", label[i]);
+                }            
+                std::cout<< std::endl;
             }
-            std::cout<< std::endl;                        
-            for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < input.getShape().getN(); i++)
+                        
+            loss = loss +  mlm.train(original, input, label, eoutput);
+
+            counter++;
+
+            if (counter % 1000 == 0)
             {
-                printf("%d ", input[i]);
-            }            
-            std::cout<< std::endl;
-            for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < label.getShape().getN(); i++)
-            {
-                printf("%d ", label[i]);
-            }            
-            std::cout<< std::endl;
-            
-            mlm.train(original, input, label, eoutput);            
+                std::cout<< "Step: " << counter << " | Average Loss: " << loss / counter << std::endl;
+            }
         }
 
         // Garbage collection

@@ -7,3 +7,4 @@ git clone https://github.com/KHAAdotPK/parser.git
 git clone https://github.com/KHAAdotPK/sundry.git
 git clone https://github.com/KHAAdotPK/Corpus.git
 git clone https://github.com/KHAAdotPK/read_write_weights.git
+git clone https://github.com/KHAAdotPK/argsv-cpp.git

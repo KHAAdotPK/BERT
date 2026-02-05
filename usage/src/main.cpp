@@ -7,9 +7,18 @@
 
 int main(int argc, char* argv[])
 {
-    ARG arg_verbose;
+    ARG arg_verbose, arg_infer;
     cc_tokenizer::csv_parser<cc_tokenizer::String<char>, char> argsv_parser(cc_tokenizer::String<char>(COMMAND));
     FIND_ARG(argv, argc, argsv_parser, "--verbose", arg_verbose);
+    FIND_ARG(argv, argc, argsv_parser, "infer", arg_infer);
+    FIND_ARG_BLOCK(argv, argc, argsv_parser, arg_infer);
+
+    cc_tokenizer::string_character_traits<char>::size_type default_infer_line = DEFAULT_INFER_LINE;
+
+    if (arg_infer.argc)
+    {
+        default_infer_line = atoi(argv[arg_infer.i + 1]);
+    }
 
     double loss = 0.0;
     cc_tokenizer::string_character_traits<char>::size_type counter = 0;
@@ -194,7 +203,6 @@ int main(int argc, char* argv[])
                 {
                     if (indices[j] < ntpl) // Creating a Mutation Map
                     {   
-
                         if (arg_verbose.i)
                         {
                             std::cout<< parser.get_token_by_number(indices[j] + 1).c_str() << " ["; 
@@ -286,6 +294,57 @@ int main(int argc, char* argv[])
                 std::cout<< "Step: " << counter << " | Average Loss: " << loss / counter << std::endl;
             }
         }
+
+        // ------------------------------------------------------------------------------------------------------------------
+        // Inference
+        std::cout<< "default_infer_line = " << default_infer_line << std::endl;
+        {
+            // Inference
+            eoutput.close_read();
+
+            for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i <  default_infer_line; i++)
+            {
+                eoutput.read(filename);
+            }
+            
+            for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < eoutput.getShape().getN(); i++)
+            {                                  
+                std::cout<< eoutput[i]<< " ";
+
+                if ((i + 1) % eoutput.getShape().getNumberOfColumns() == 0)
+                {
+                    std::cout<< std::endl;
+                }
+            }
+
+            parser.get_line_by_number(default_infer_line);
+            std::cout<< parser.get_current_line().c_str() << std::endl;
+            //std::cout<< "Number of tokens = " << parser.get_total_number_of_tokens() << std::endl;
+            ntpl = parser.get_total_number_of_tokens();
+
+            Collective<double> logits = mlm.infer(eoutput);
+
+            //std::cout<< "Logits, ROWS = " << logits.getShape().getNumberOfRows() << ", COLS = " << logits.getShape().getNumberOfColumns() << std::endl;
+
+            for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < ntpl; i++)
+            {
+                double max_logit = std::numeric_limits<double>::lowest();              
+                cc_tokenizer::string_character_traits<char>::size_type max_logit_index = 0;
+                
+                std::cout<< parser.get_token_by_number(i + 1).c_str() << ": ";
+                for (cc_tokenizer::string_character_traits<char>::size_type j = 0; j < logits.getShape().getNumberOfColumns(); j++)
+                {
+                    if (logits[i*logits.getShape().getNumberOfColumns() + j] > max_logit)
+                    {
+                        max_logit = logits[i*logits.getShape().getNumberOfColumns() + j];
+                        max_logit_index = j;
+                    }
+                }
+                std::cout<< max_logit_index << ", " << max_logit << " -> " << vocab[max_logit_index + INDEX_ORIGINATES_AT_VALUE].c_str() << std::endl;
+            }
+            std::cout<< std::endl;
+        }
+        // ------------------------------------------------------------------------------------------------------------------
 
         // Garbage collection
         cc_tokenizer::allocator<cc_tokenizer::string_character_traits<char>::int_type>().deallocate(indices, mntpl);

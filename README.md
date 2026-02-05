@@ -49,16 +49,31 @@ The following chart visualizes the training progress of the BERT model over **25
 
 ---
 
+### 📂 Project Documentation & Logs
+
+For detailed execution logs and model output analysis, please refer to:
+
+* **[Inference Output Logs (output.md)](output.md)** — A detailed breakdown of the model's predictions, symptom correlations, and technical evaluation of the "Mode Collapse" observed during training.
+
+---
+
 ## 🏗 Next Steps: Optimization & Inference
 
 Currently moving from a "functional skeleton" to a "stable product." The immediate focus is on the following:
 
-### 1. Argmax & Top-K Decoding (Inference Implementation)
+### 1. Top-K Decoding (Inference Implementation)
 
-We are building the logic to transform raw numerical outputs (Logits) into human-readable predictions.
+Building the logic to transform raw numerical outputs (Logits) into human-readable predictions.
 
-* **Argmax:** Logic to find the single most likely token index for a `[MASK]`.
 * **Top-K Selection:** Implementing a sorting mechanism to extract the **Top 5** most probable words. This is the final step required to power a visual demo where the model fills in the blanks.
+
+### 2. Gradient Accumulation (Stability & Diversity)
+
+To improve the model's "intelligence" and prevent it from getting stuck on repetitive predictions (like seeing the same word too often), we are implementing **Gradient Accumulation**.
+
+* **Batch Simulation:** Instead of updating weights after every single sentence, the engine will now "accumulate" gradients over **16 sentences** before performing a single weight update.
+* **Diverse Pattern Learning:** This allows the model to see a broader variety of linguistic patterns before making a decision, leading to much smoother convergence and more "diverse" word predictions.
+* **Memory Efficiency:** This provides the benefits of "Large Batch Training" without increasing the RAM requirements of the C++ binary.
 
 ## 🛠 Tech Stack
 

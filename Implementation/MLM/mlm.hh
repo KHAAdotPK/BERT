@@ -15,8 +15,10 @@
     public:
         MLM();
         MLM(CORPUS&, cc_tokenizer::string_character_traits<char>::size_type = SKIP_GRAM_EMBEDDNG_VECTOR_SIZE);
+        
 
         ~MLM();
+        Collective<E> infer(Collective<E>&);
         E train(Collective<F>&, Collective<F>&, Collective<F>&, Collective<E>&);    
  };
 
@@ -50,7 +52,28 @@
  MLM<E, F>::~MLM()
  {
     
- }  
+ }
+ 
+template <typename E = double, typename F = cc_tokenizer::string_character_traits<char>::int_type>
+Collective<E> MLM<E, F>::infer(Collective<E>& eo) throw (ala_exception) 
+{
+    /*
+        Step 1 (Forward Propagation) 
+        ---------------------------
+        - Linear Projection: For every token in the sequence, calculate: eo[i] x W_mlm + b_mlm 
+            - Perform the matrix multiplication to compute the Logits.
+            - $$\text{logits} = (\text{eo} \cdot W_{mlm}) + b_{mlm}$$
+            - You will end up with a $(eo.getShape().getNumberOfRows() \times vocab.getShape().numbersOfUniqueTokens())$ matrix.
+            - Each row represents a position in the sentence, and each column is the "score" for a specific word in your dictionary.    
+            - The higher the score, the more likely the word is to be the correct word at that position.
+            - The lower the score, the less likely the word is to be the correct word at that position.
+    */
+    
+    Collective<E> logits = Numcy::dot(eo, w_mlm);
+    logits = logits + b_mlm; 
+    
+    return logits;
+} 
 
  /*
   * MLM Training Function

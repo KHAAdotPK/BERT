@@ -12,7 +12,10 @@
 #include "./../../Implementation/lib/read_write_weights/header.hh"
 #include "./../../Implementation/lib/argsv-cpp/lib/parser/parser.hh"
 
-#define COMMAND "verbose --verbose (optional)\n"
+#define COMMAND "verbose --verbose (optional)\n\
+infer --infer (Inference mode)\n"
+
+#define DEFAULT_INFER_LINE 1
 
 #ifndef MLM_BERT_NO_MORE_AUTO_REGRESSIVE_MODEL // In C/C++ world donot travel without include guards; period
 #define MLM_BERT_NO_MORE_AUTO_REGRESSIVE_MODEL

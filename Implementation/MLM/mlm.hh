@@ -9,6 +9,17 @@
  template <typename E = double, typename F = cc_tokenizer::string_character_traits<char>::int_type>
  class MLM
  {
+    cc_tokenizer::string_character_traits<char>::size_type gradient_accumulation_steps_counter;
+    /*
+        Gradient Accumulation
+        ---------------------
+        Instead of updating the weights after every single sentence (batch size = 1), we can accumulate the gradients from multiple sentences (e.g., 16) and then update the weights once. This simulates a larger batch size without requiring more memory.
+        Why this helps: With a batch size of 1, the model sees only one example at a time. If that example is an outlier or noisy, the model's weights can shift dramatically in the wrong direction. Accumulating gradients smooths out these updates, leading to more stable training and better generalization.
+        Implementation: We can add a counter to your train loop. For every sentence, we calculate the gradients but don't update the weights immediately. We add them to dLogits_dW and dLogits_db. Every 16 iterations, we perform the weight update and then reset the accumulators.        
+     */
+    Collective<E> dLogits_dW; // Gradient of logits with respect to weights
+    Collective<E> dLogits_db; // Gradient of logits with respect to bias
+
     Collective<E> w_mlm; // Projection weights: [d_model x vocab_size]
     Collective<E> b_mlm; // Bias vector: [vocab_size]
 
@@ -23,7 +34,7 @@
  };
 
  template <typename E = double, typename F = cc_tokenizer::string_character_traits<char>::int_type>
- MLM<E, F>::MLM() : w_mlm(), b_mlm()
+ MLM<E, F>::MLM() : w_mlm(), b_mlm(), dLogits_dW(), dLogits_db(), gradient_accumulation_steps_counter(0)
  {
     
  }
@@ -46,6 +57,18 @@
     w_mlm = Numcy::Random::randn_xavier<E>(DIMENSIONS{vocab.numberOfUniqueTokens(), d_model, NULL, NULL}, false);
     // Initialize bias with zeros
     b_mlm = Numcy::zeros<E>(DIMENSIONS{vocab.numberOfUniqueTokens(), 1, NULL, NULL});
+
+    /*
+        Gradient Accumulation
+        ---------------------
+        Instead of updating the weights after every single sentence (batch size = 1), we can accumulate the gradients from multiple sentences (e.g., 16) and then update the weights once. This simulates a larger batch size without requiring more memory.
+        Why this helps: With a batch size of 1, the model sees only one example at a time. If that example is an outlier or noisy, the model's weights can shift dramatically in the wrong direction. Accumulating gradients smooths out these updates, leading to more stable training and better generalization.
+        Implementation: We can add a counter to your train loop. For every sentence, we calculate the gradients but don't update the weights immediately. We add them to dLogits_dW and dLogits_db. Every 16 iterations, we perform the weight update and then reset the accumulators.        
+     */
+    dLogits_dW = Numcy::zeros<E>(w_mlm.getShape()); // Gradient of logits with respect to weights
+    dLogits_db = Numcy::zeros<E>(b_mlm.getShape()); // Gradient of logits with respect to bias
+
+    gradient_accumulation_steps_counter = 0;
  }
 
  template <typename E = double, typename F = cc_tokenizer::string_character_traits<char>::int_type>
@@ -247,9 +270,9 @@ E MLM<E, F>::train(Collective<F>& original, Collective<F>& input, Collective<F>&
         Collective<E> dLogits_dW = Numcy::zeros<E>(w_mlm.getShape());
         Collective<E> dLogits_db = Numcy::zeros<E>(b_mlm.getShape());      
     */
-    Collective<E> dLoss_dLogits = dLogits;
-    Collective<E> dLogits_dW = Numcy::zeros<E>(w_mlm.getShape());
-    Collective<E> dLogits_db = Numcy::zeros<E>(b_mlm.getShape());
+    //Collective<E> dLoss_dLogits = dLogits;
+    Collective<E> dLogits_dW = Numcy::zeros<E>(w_mlm.getShape()); // Gradient of logits with respect to weights
+    Collective<E> dLogits_db = Numcy::zeros<E>(b_mlm.getShape()); // Gradient of logits with respect to bias
 
     Collective<E> eo_transposed = Numcy::transpose(eo);
 
@@ -260,6 +283,9 @@ E MLM<E, F>::train(Collective<F>& original, Collective<F>& input, Collective<F>&
     dLogits_dW = Numcy::dot(eo_transposed, dLogits);
     dLogits_db = Numcy::sum(dLogits, AXIS_COLUMN);
 
+    this->dLogits_dW = this->dLogits_dW + dLogits_dW;
+    this->dLogits_db = this->dLogits_db + dLogits_db;
+    
     /*std::cout<< "Columns db = " << dLogits_db.getShape().getNumberOfColumns() << std::endl;
     std::cout<< "Rows = " << dLogits_db.getShape().getNumberOfRows() << std::endl;*/
 
@@ -281,7 +307,7 @@ E MLM<E, F>::train(Collective<F>& original, Collective<F>& input, Collective<F>&
      */
     // W = W - (lr * dW)
     // w_mlm = w_mlm - learning_rate * dLogits_dW;
-    w_mlm = w_mlm - (dLogits_dW * learning_rate);
+    /*w_mlm = w_mlm - (dLogits_dW * learning_rate);*/
 
     /*std::cout<< "Columns w_mlm = " << w_mlm.getShape().getNumberOfColumns() << std::endl;
     std::cout<< "Rows w_mlm = " << w_mlm.getShape().getNumberOfRows() << std::endl;
@@ -291,7 +317,20 @@ E MLM<E, F>::train(Collective<F>& original, Collective<F>& input, Collective<F>&
 
     // b = b - (lr * db)
     // b_mlm = b_mlm - learning_rate * dLogits_db; 
-    b_mlm = b_mlm - (dLogits_db * learning_rate);
+    /*b_mlm = b_mlm - (dLogits_db * learning_rate);*/
+
+    if (gradient_accumulation_steps_counter >= (GRADIENT_ACCUMULATION_STEPS - 1))
+    {
+        this->dLogits_dW = this->dLogits_dW / GRADIENT_ACCUMULATION_STEPS;
+        this->dLogits_db = this->dLogits_db / GRADIENT_ACCUMULATION_STEPS;
+
+        w_mlm = w_mlm - (this->dLogits_dW * learning_rate);
+        b_mlm = b_mlm - (this->dLogits_db * learning_rate);
+        gradient_accumulation_steps_counter = 0;
+
+        this->dLogits_dW = Numcy::zeros<E>(this->dLogits_dW.getShape());
+        this->dLogits_db = Numcy::zeros<E>(this->dLogits_db.getShape());
+    }
 
     /*std::cout<< "Loss = " << loss << std::endl;*/
 
@@ -370,8 +409,10 @@ E MLM<E, F>::train(Collective<F>& original, Collective<F>& input, Collective<F>&
         - Cross-Entropy Loss: Compare the predicted probabilities with the true labels.
             - $$\text{loss} = -\sum_{i=1}^{n} \text{label}_i \log(\text{probs}_i)$$
 
-        - Backpropagation: Update $W_{mlm}$ and $b_{mlm}$ using the gradient. */     
-
+        - Backpropagation: Update $W_{mlm}$ and $b_{mlm}$ using the gradient. */   
+        
+    gradient_accumulation_steps_counter++;
+    
     return loss;
 }
 #endif // KHAA_PK_BERT_MLM_HH

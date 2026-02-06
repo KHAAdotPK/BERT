@@ -47,6 +47,20 @@ The following chart visualizes the training progress of the BERT model over **25
 * **Steady Convergence (Steps 10k–25k):** The plateau indicates that the model has reached "local convergence," where the internal weights are now finely tuned to the specific vocabulary and context of the training corpus.
 * **Stability:** Notice the lack of "loss spikes." This confirms that our **Xavier/Glorot initialization** and learning rate are perfectly calibrated, preventing exploding or vanishing gradients.
 
+### After the implementation of gradient accumulation
+
+A loss of 3.27 means the model is much more "certain" about the relationships between words. Notice how the loss decreases steadily at almost every step; that is the "Smooth Descent" we were aiming for.
+
+#### The "Tremors" Issue (The New Mode Collapse)
+
+The model is still leaning heavily on the word tremors for the other symptoms.
+
+- Why? Even though loss is down to 3.27, the model is still relatively "shallow." It has found that tremors is a statistically common neighbor for many symptoms in your 25,000-line dataset.
+
+- The Fix: Try Top-K Decoding. Right now, the model only looks at the #1 highest score. If it looked at the Top 5, it would likely see other symptoms like vomiting or fever appearing in the 2nd, 3rd, 4th or 5th spots.
+
+![Training Performance & Convergence](average_loss_chart_06_02_2026.png)
+
 ---
 
 ### 📂 Project Documentation & Logs
@@ -66,14 +80,6 @@ Currently moving from a "functional skeleton" to a "stable product." The immedia
 Building the logic to transform raw numerical outputs (Logits) into human-readable predictions.
 
 * **Top-K Selection:** Implementing a sorting mechanism to extract the **Top 5** most probable words. This is the final step required to power a visual demo where the model fills in the blanks.
-
-### 2. Gradient Accumulation (Stability & Diversity)
-
-To improve the model's "intelligence" and prevent it from getting stuck on repetitive predictions (like seeing the same word too often), we are implementing **Gradient Accumulation**.
-
-* **Batch Simulation:** Instead of updating weights after every single sentence, the engine will now "accumulate" gradients over **16 sentences** before performing a single weight update.
-* **Diverse Pattern Learning:** This allows the model to see a broader variety of linguistic patterns before making a decision, leading to much smoother convergence and more "diverse" word predictions.
-* **Memory Efficiency:** This provides the benefits of "Large Batch Training" without increasing the RAM requirements of the C++ binary.
 
 ## 🛠 Tech Stack
 

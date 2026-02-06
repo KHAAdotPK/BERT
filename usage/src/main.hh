@@ -12,10 +12,32 @@
 #include "./../../Implementation/lib/read_write_weights/header.hh"
 #include "./../../Implementation/lib/argsv-cpp/lib/parser/parser.hh"
 
-#define COMMAND "verbose --verbose (optional)\n\
-infer --infer (Inference mode)\n"
+#define COMMAND "verbose --verbose (TODO)\n\
+infer --infer (TODO)\n"
 
 #define DEFAULT_INFER_LINE 1
+
+/*
+    The training process uses a Gradient Accumulation strategy to simulate batch training on a CPU without increased memory overhead. 
+    You can tune the training stability and speed using the GRADIENT_ACCUMULATION_STEPS macro.
+
+    The value (default 16) represents how many sentences are "read" and analyzed before the model makes a single change to its weights.
+    - The Power of 2: Always try to keep this number as a power of 2 (2, 4, 8, 16, 32...).
+      This allows the C++ compiler to optimize the math for your CPU’s cache lines, leading to slightly faster execution.
+    - The Learning Rate Connection: If you increase the accumulation steps (e.g., from 16 to 32), the model becomes more "confident" in its direction.
+      You can often slightly increase your learning rate to take bigger, more stable steps.
+    - Memory Efficiency: Because this is implemented via accumulation in the MLM class, increasing this number does not use more RAM.
+      It only changes how often the w_mlm and b_mlm weights are updated. 
+
+   Advice
+   ------
+   - Start with a small value (e.g., 2) and increase it gradually to find the optimal balance between speed and stability.
+   - Monitor the training process closely to ensure that the model is learning effectively.
+   - If you notice any instability or divergence, consider decreasing the accumulation steps.
+
+   Stick with 16 for first "Batching" experiment. Once you see the loss curve in your logs, if it looks too flat, move down to 8. If it's still too chaotic, move up to 32.
+ */
+#define GRADIENT_ACCUMULATION_STEPS 16
 
 #ifndef MLM_BERT_NO_MORE_AUTO_REGRESSIVE_MODEL // In C/C++ world donot travel without include guards; period
 #define MLM_BERT_NO_MORE_AUTO_REGRESSIVE_MODEL

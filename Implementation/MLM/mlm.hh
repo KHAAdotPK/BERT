@@ -105,6 +105,12 @@ Collective<E> MLM<E, F>::infer(Collective<E>& eo) throw (ala_exception)
   * @param label: Label Sequence
   * @param eo: Encoder Output Sequence   
   *
+  * The original and input tokens are usually used in the data-generator phase to create the masks.
+  * The label tokens are the original tokens that were replaced with [MASK] tokens.
+  * In a Masked Language Model (MLM), once you have the eo (Encoder Output/Hidden States),
+  * you technically only need the label (the ground truth) to calculate loss and backpropagate.
+  * 
+  * The eo tokens are the encoder output tokens that were replaced with [MASK] tokens.
   * Inside train function, we wil implement the "Project and Compare" logic.
   * Here is a conceptual breakdown of what that function needs to do: 
   * 1. Linear Projection: For every token in the sequence, calculate: eo[i] x W_mlm + b_mlm 
@@ -271,8 +277,8 @@ E MLM<E, F>::train(Collective<F>& original, Collective<F>& input, Collective<F>&
         Collective<E> dLogits_db = Numcy::zeros<E>(b_mlm.getShape());      
     */
     //Collective<E> dLoss_dLogits = dLogits;
-    Collective<E> dLogits_dW = Numcy::zeros<E>(w_mlm.getShape()); // Gradient of logits with respect to weights
-    Collective<E> dLogits_db = Numcy::zeros<E>(b_mlm.getShape()); // Gradient of logits with respect to bias
+    //Collective<E> dLogits_dW = Numcy::zeros<E>(w_mlm.getShape()); // Gradient of logits with respect to weights
+    //Collective<E> dLogits_db = Numcy::zeros<E>(b_mlm.getShape()); // Gradient of logits with respect to bias
 
     Collective<E> eo_transposed = Numcy::transpose(eo);
 
@@ -280,16 +286,21 @@ E MLM<E, F>::train(Collective<F>& original, Collective<F>& input, Collective<F>&
     std::cout<< "Columns eo = " << eo_transposed.getShape().getNumberOfColumns() << std::endl;
     std::cout<< "Rows = " << eo_transposed.getShape().getNumberOfRows() << std::endl;*/
 
-    dLogits_dW = Numcy::dot(eo_transposed, dLogits);
-    dLogits_db = Numcy::sum(dLogits, AXIS_COLUMN);
+    Collective<E> dLogits_dW = Numcy::dot(eo_transposed, dLogits);
+    Collective<E> dLogits_db = Numcy::sum(dLogits, AXIS_COLUMN);
 
     this->dLogits_dW = this->dLogits_dW + dLogits_dW;
-    this->dLogits_db = this->dLogits_db + dLogits_db;
+    this->dLogits_db = this->dLogits_db + dLogits_db; 
     
     /*std::cout<< "Columns db = " << dLogits_db.getShape().getNumberOfColumns() << std::endl;
     std::cout<< "Rows = " << dLogits_db.getShape().getNumberOfRows() << std::endl;*/
 
-    double learning_rate = 0.05; // Or whatever alpha you prefer
+    /*
+        The Learning Rate ($\eta$): This is quite high for MLM. 
+        If you notice the loss starts to "bounce" (e.g., goes from 3.2 to 3.8 suddenly), try dropping it to 0.01 or 0.005.
+        High learning rates in C++ can sometimes cause "NaN" (Not a Number) errors if a gradient explodes.
+     */
+    double learning_rate = 0.09; // Or whatever alpha you prefer
     /*
         Step 8: The Weight Update (The Finale)
         --------------------------------------
@@ -399,10 +410,6 @@ E MLM<E, F>::train(Collective<F>& original, Collective<F>& input, Collective<F>&
         }
     }*/
     
-    
-
-      
-
     /*
         - Softmax: Convert logits to probabilities.
         - $$\text{probs} = \text{softmax}(\text{logits})$$

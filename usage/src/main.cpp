@@ -7,17 +7,24 @@
 
 int main(int argc, char* argv[])
 {
-    ARG arg_verbose, arg_infer;
+    ARG arg_verbose, arg_infer, arg_top_k;
     cc_tokenizer::csv_parser<cc_tokenizer::String<char>, char> argsv_parser(cc_tokenizer::String<char>(COMMAND));
     FIND_ARG(argv, argc, argsv_parser, "--verbose", arg_verbose);
     FIND_ARG(argv, argc, argsv_parser, "infer", arg_infer);
     FIND_ARG_BLOCK(argv, argc, argsv_parser, arg_infer);
+    FIND_ARG(argv, argc, argsv_parser, "top-k", arg_top_k);
+    FIND_ARG_BLOCK(argv, argc, argsv_parser, arg_top_k);
 
     cc_tokenizer::string_character_traits<char>::size_type default_infer_line = DEFAULT_INFER_LINE;
-
-    if (arg_infer.argc)
+    if (arg_infer.i && arg_infer.argc)
     {
         default_infer_line = atoi(argv[arg_infer.i + 1]);
+    }
+
+    cc_tokenizer::string_character_traits<char>::size_type default_top_k = DEFAULT_TOP_K;
+    if (arg_top_k.i && arg_top_k.argc)
+    {
+        default_top_k = atoi(argv[arg_top_k.i + 1]);
     }
 
     double loss = 0.0;
@@ -327,23 +334,28 @@ int main(int argc, char* argv[])
             //std::cout<< "Logits, ROWS = " << logits.getShape().getNumberOfRows() << ", COLS = " << logits.getShape().getNumberOfColumns() << std::endl;
 
             for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < ntpl; i++)
-            {
-                double max_logit = std::numeric_limits<double>::lowest();              
-                cc_tokenizer::string_character_traits<char>::size_type max_logit_index = 0;
-                
+            {                
                 std::cout<< parser.get_token_by_number(i + 1).c_str() << ": ";
-                for (cc_tokenizer::string_character_traits<char>::size_type j = 0; j < logits.getShape().getNumberOfColumns(); j++)
-                {
-                    if (logits[i*logits.getShape().getNumberOfColumns() + j] > max_logit)
-                    {
-                        max_logit = logits[i*logits.getShape().getNumberOfColumns() + j];
-                        max_logit_index = j;
-                    }
+
+                for (cc_tokenizer::string_character_traits<char>::size_type j = 0; j < default_top_k; j++)
+                {   
+                    double max_logit = std::numeric_limits<double>::lowest();              
+                    cc_tokenizer::string_character_traits<char>::size_type max_logit_index = 0;
+
+                    for (cc_tokenizer::string_character_traits<char>::size_type k = 0; k < logits.getShape().getNumberOfColumns(); k++)
+                    {                        
+                        if (logits[i*logits.getShape().getNumberOfColumns() + k] > max_logit)
+                        {
+                            max_logit = logits[i*logits.getShape().getNumberOfColumns() + k];
+                            max_logit_index = k;
+                        }
+                    }                    
+                    std::cout<< max_logit_index << ", " << max_logit << " -> " << vocab[max_logit_index + INDEX_ORIGINATES_AT_VALUE].c_str() << std::endl;
+                    logits[i*logits.getShape().getNumberOfColumns() + max_logit_index] = std::numeric_limits<double>::lowest();                    
                 }
-                std::cout<< max_logit_index << ", " << max_logit << " -> " << vocab[max_logit_index + INDEX_ORIGINATES_AT_VALUE].c_str() << std::endl;
-            }
-            std::cout<< std::endl;
+            }                
         }
+        std::cout<< std::endl;        
         // ------------------------------------------------------------------------------------------------------------------
 
         // Garbage collection

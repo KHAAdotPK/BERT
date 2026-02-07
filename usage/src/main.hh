@@ -13,9 +13,11 @@
 #include "./../../Implementation/lib/argsv-cpp/lib/parser/parser.hh"
 
 #define COMMAND "verbose --verbose (TODO)\n\
-infer --infer (TODO)\n"
+infer --infer (TODO)\n\
+top-k --top-k (TODO)\n"
 
 #define DEFAULT_INFER_LINE 1
+#define DEFAULT_TOP_K 5
 
 /*
     The training process uses a Gradient Accumulation strategy to simulate batch training on a CPU without increased memory overhead. 

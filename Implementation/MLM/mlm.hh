@@ -201,7 +201,14 @@ E MLM<E, F>::train(Collective<F>& original, Collective<F>& input, Collective<F>&
             }
             std::cout<< std::endl;*/
 
-            predicted_probabilities = Numcy::softmax(logits_row);
+            /*
+                We use Temperature only during inference (testing the model).
+                During training, we want the model to learn the true distribution of the data, 
+                so we don't use temperature scaling.
+                Train at $T=1.0$ (This keeps the "math" natural).
+             */
+            predicted_probabilities = Numcy::softmax(logits_row, NATURAL_TEMPERATURE);
+            //predicted_probabilities = Numcy::softmax(logits_row);
 
             /*std::cout<< "predicted " << predicted_probabilities.getShape().getNumberOfRows() << " " << predicted_probabilities.getShape().getNumberOfColumns() << std::endl;
             std::cout<< "Label: " << label[i] << std::endl;*/

@@ -19,6 +19,10 @@ top-k --top-k (TODO)\n"
 #define DEFAULT_INFER_LINE 1
 #define DEFAULT_TOP_K 5
 
+#define NATURAL_TEMPERATURE 1.0
+#define HIGH_TEMPERATURE 2.0
+#define LOW_TEMPERATURE 0.5
+
 /*
     The training process uses a Gradient Accumulation strategy to simulate batch training on a CPU without increased memory overhead. 
     You can tune the training stability and speed using the GRADIENT_ACCUMULATION_STEPS macro.

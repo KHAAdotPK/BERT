@@ -302,6 +302,26 @@ int main(int argc, char* argv[])
             }
         }
 
+
+        /*
+         * ---------------------------------------
+         * How to use temperature during inference
+         * ---------------------------------------
+         *  Make sure that the inference code also calls that softmax function with the chosen "knob" value. 
+         *  The Inference Workflow:
+         *  1. Forward Pass: The model calculates raw Logits ($eo \cdot W_{mlm} + b_{mlm}$).
+         *  2. Softmax the logits with the chosen temperature knob value.         
+         */
+        /*
+            // Inside the inference loop:
+            Collective<E> logits_row = // ... (existing logic to get the row)
+
+            // Apply Temperature here!
+            double infer_temp = 1.5; // Use higher for brainstorming, lower for accuracy
+            Collective<E> probs = Numcy::softmax(logits_row, infer_temp); 
+
+            // Now your Top-K logic uses 'probs' which has been shaped by the temperature
+         */
         // ------------------------------------------------------------------------------------------------------------------
         // Inference
         std::cout<< "default_infer_line = " << default_infer_line << std::endl;

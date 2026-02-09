@@ -14,7 +14,8 @@
 
 #define COMMAND "verbose --verbose (TODO)\n\
 infer --infer (TODO)\n\
-top-k --top-k (TODO)\n"
+top-k --top-k (TODO)\n\
+temperature --temperature (TODO)\n"
 
 #define DEFAULT_INFER_LINE 1
 #define DEFAULT_TOP_K 5

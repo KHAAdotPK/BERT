@@ -7,13 +7,15 @@
 
 int main(int argc, char* argv[])
 {
-    ARG arg_verbose, arg_infer, arg_top_k;
+    ARG arg_verbose, arg_infer, arg_top_k, arg_temperature;
     cc_tokenizer::csv_parser<cc_tokenizer::String<char>, char> argsv_parser(cc_tokenizer::String<char>(COMMAND));
     FIND_ARG(argv, argc, argsv_parser, "--verbose", arg_verbose);
     FIND_ARG(argv, argc, argsv_parser, "infer", arg_infer);
     FIND_ARG_BLOCK(argv, argc, argsv_parser, arg_infer);
     FIND_ARG(argv, argc, argsv_parser, "top-k", arg_top_k);
     FIND_ARG_BLOCK(argv, argc, argsv_parser, arg_top_k);
+    FIND_ARG(argv, argc, argsv_parser, "temperature", arg_temperature);
+    FIND_ARG_BLOCK(argv, argc, argsv_parser, arg_temperature);
 
     cc_tokenizer::string_character_traits<char>::size_type default_infer_line = DEFAULT_INFER_LINE;
     if (arg_infer.i && arg_infer.argc)
@@ -25,6 +27,12 @@ int main(int argc, char* argv[])
     if (arg_top_k.i && arg_top_k.argc)
     {
         default_top_k = atoi(argv[arg_top_k.i + 1]);
+    }
+
+    double default_temperature = NATURAL_TEMPERATURE;
+    if (arg_temperature.i && arg_temperature.argc)
+    {
+        default_temperature = atof(argv[arg_temperature.i + 1]);
     }
 
     double loss = 0.0;
@@ -68,6 +76,10 @@ int main(int argc, char* argv[])
     // The 'Encoder Output': A 3D tensor (Batch x SeqLen x Features) holding the contextual embeddings.
     // This is the "frozen" state from the pre-trained encoder that we feed into the MLM Head.
     Collective<double> eoutput;
+
+    // Inference
+    Collective<double> logits_row;
+    Collective<double> predicted_probabilities;
 
     // --- Array Dimensions ---
     DIMENSIONSOFARRAY dimensionsOfArray;
@@ -349,12 +361,16 @@ int main(int argc, char* argv[])
             //std::cout<< "Number of tokens = " << parser.get_total_number_of_tokens() << std::endl;
             ntpl = parser.get_total_number_of_tokens();
 
+            // Forward propagation
             Collective<double> logits = mlm.infer(eoutput);
 
             //std::cout<< "Logits, ROWS = " << logits.getShape().getNumberOfRows() << ", COLS = " << logits.getShape().getNumberOfColumns() << std::endl;
 
             for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < ntpl; i++)
-            {                
+            { 
+                logits_row = logits.slice(i*logits.getShape().getNumberOfColumns(), DIMENSIONS{logits.getShape().getNumberOfColumns(), 1, NULL, NULL});
+                predicted_probabilities = Numcy::softmax(logits_row, default_temperature);
+
                 std::cout<< parser.get_token_by_number(i + 1).c_str() << ": ";
 
                 for (cc_tokenizer::string_character_traits<char>::size_type j = 0; j < default_top_k; j++)
@@ -364,14 +380,16 @@ int main(int argc, char* argv[])
 
                     for (cc_tokenizer::string_character_traits<char>::size_type k = 0; k < logits.getShape().getNumberOfColumns(); k++)
                     {                        
-                        if (logits[i*logits.getShape().getNumberOfColumns() + k] > max_logit)
+                        //if (logits[i*logits.getShape().getNumberOfColumns() + k] > max_logit)
+                        if (predicted_probabilities[k] > max_logit)
                         {
-                            max_logit = logits[i*logits.getShape().getNumberOfColumns() + k];
+                            max_logit = predicted_probabilities[k];
                             max_logit_index = k;
                         }
                     }                    
                     std::cout<< max_logit_index << ", " << max_logit << " -> " << vocab[max_logit_index + INDEX_ORIGINATES_AT_VALUE].c_str() << std::endl;
-                    logits[i*logits.getShape().getNumberOfColumns() + max_logit_index] = std::numeric_limits<double>::lowest();                    
+                    //logits[i*logits.getShape().getNumberOfColumns() + max_logit_index] = std::numeric_limits<double>::lowest();                    
+                    predicted_probabilities[max_logit_index] = std::numeric_limits<double>::lowest();
                 }
             }                
         }

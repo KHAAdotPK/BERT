@@ -166,7 +166,7 @@ muscle-pain: 23, 1.58114 -> weight-gain
 weight-gain: 23, 4.94521 -> weight-gain
 sneezing: 25, 1.1487 -> tremors
 fever: 25, 1.08189 -> tremors
-```text
+```
 
 ## 📋 Session 4: I changed the learning rate to 0.09 from 0.05 and now there are three distinct, medically logical predictions.
 
@@ -216,22 +216,89 @@ joint-pain: 11, 0.833327 -> swelling
 shortness-of-breath: 12, 0.34171 -> appetite-loss
 runny-nose: 27, 0.35865 -> sneezing
 ```
+## 📋 Session 5: Removed a bug that was causing the model to not update weights properly
+
+```text
+PS F:\BERT\usage> ./main.exe infer 10 temperature 0.5
+Reading training data from the file...
+Creating parser for training data...
+Creating vocabulary using the training data parser...
+Reading pre-trained word vectors from the file...
+Creating original weights from the pre-trained word vectors...
+Determining maximum sequence length...
+Step: 1000 | Average Loss: 5.25784
+Step: 2000 | Average Loss: 4.89021
+Step: 3000 | Average Loss: 4.61174
+Step: 4000 | Average Loss: 4.38736
+Step: 5000 | Average Loss: 4.22922
+Step: 6000 | Average Loss: 4.08982
+Step: 7000 | Average Loss: 3.97333
+Step: 8000 | Average Loss: 3.88472
+Step: 9000 | Average Loss: 3.80786
+Step: 10000 | Average Loss: 3.7479
+Step: 11000 | Average Loss: 3.69871
+Step: 12000 | Average Loss: 3.65708
+Step: 13000 | Average Loss: 3.62055
+Step: 14000 | Average Loss: 3.5913
+Step: 15000 | Average Loss: 3.56433
+Step: 16000 | Average Loss: 3.53712
+Step: 17000 | Average Loss: 3.51391
+Step: 18000 | Average Loss: 3.49272
+Step: 19000 | Average Loss: 3.47496
+Step: 20000 | Average Loss: 3.45984
+Step: 21000 | Average Loss: 3.44552
+Step: 22000 | Average Loss: 3.43312
+Step: 23000 | Average Loss: 3.42214
+Step: 24000 | Average Loss: 3.41235
+Step: 25000 | Average Loss: 3.40179
+default_infer_line = 10
+-2.54968 1.95186 0.159263 -2.89801 0.969118 -0.393037 -0.0821615 1.79531
+-1.61708 2.5377 1.12951 0.5752 0.920301 0.377153 -1.11113 2.67982
+-1.21579 1.63847 -0.318984 0.611676 0.0141521 -1.06068 1.39752 2.3464
+0 0 0 0 0 0 0 0
+0 0 0 0 0 0 0 0
+0 0 0 0 0 0 0 0
+0 0 0 0 0 0 0 0
+joint-pain shortness-of-breath runny-nose
+joint-pain: 11, 0.118974 -> swelling
+22, 0.0692631 -> sweating
+27, 0.0384605 -> sneezing
+15, 0.0333164 -> fatigue
+18, 0.0322782 -> chest-pain
+shortness-of-breath: 11, 0.0771487 -> swelling
+18, 0.054065 -> chest-pain
+22, 0.0521863 -> sweating
+25, 0.0443614 -> tremors
+26, 0.043331 -> abdominal-pain
+runny-nose: 11, 0.0963455 -> swelling
+12, 0.047504 -> appetite-loss
+24, 0.0470303 -> headache
+27, 0.0418799 -> sneezing
+22, 0.0391664 -> sweating
+```
 
 ## 🔬 Training Experiments Tracker
 
 Use this table to record the impact of different hyperparameter settings. This allows us to scientifically track which "Batch Size" leads to the best medical symptom correlations.
 
-| Date | Acc. Steps (Batch) | Learning Rate | Steps | Final Avg Loss | Outcome / Observation |
+| Date | Learning Rate | Steps | Final Avg Loss | Temperature (Infer) | Outcome / Observation |
 | --- | --- | --- | --- | --- | --- |
-| 2026-02-05 | 1 (None) | 0.001* | 25,000 | 5.43 | **Mode Collapse:** Repeatedly predicted `blurred-vision`. |
-| 2026-02-06 | **16** | 0.05 | 25,000 | **3.27** | **Significant Success.** Loss dropped by ~40%. Repetitive "blurred-vision" bias broken. New clustering around "weight-gain" and "tremors" detected. |
-| 2026-02-07 | **16** | **0.09** | 25,000 | **3.33** | **Logic Breakthrough.** Despite slightly higher loss, predictions became highly diverse and accurate (e.g., `runny-nose` -> `sneezing`, `joint-pain` -> `swelling`). |
+| 2026-02-05 | 0.001* | 25,000 | 5.43 | N/A | **Mode Collapse:** Stuck on `blurred-vision`. |
+| 2026-02-06 | 0.001 | 25,000 | 3.27 | N/A | **Batch Success:** 16-step accumulation broke the bias. |
+| 2026-02-07 | **0.09** | 25,000 | **3.33** | 0.3 - 3.0 | **Logic Breakthrough:** High diversity. `runny-nose` correctly linked to `sneezing`. |
+| 2026-02-09 | **0.01** | 25,000 | **3.40** | 0.5 | **Safe Convergence:** Very stable loss curve. Good medical clustering (`shortness-of-breath` ⮕ `chest-pain`), but slower to "specialize" than the 0.09 run. |
 
 
 > **Note:** "Outcome" describes if the model started predicting more diverse symptoms (e.g., `sneezing`, `coughing`) instead of just one repeating word.
 
-### 🔍 Why this entry matters:
+### 🔍 Why this entry matters (2026-02-07):
 * **The "Loss" Paradox:** Notice how the Loss went **UP** slightly (from 3.27 to 3.33). In machine learning, lower is usually better. However, in this specific case, the *quality* of the predictions improved dramatically. This tells us the model is learning the *relationships* between symptoms better, even if the raw math score isn't perfect yet.
 * **The "Bias" Fix:** We successfully broke the "Frequency Bias" (the model guessing the same word over and over). The model is now exploring different medical scenarios.  
 
     -  Notice the **Outcome** for the 0.09 run (previously learning rate was 0.05   ). This is a perfect example of why **Loss isn't everything**. 
+
+
+ ### 🔎 Analysis for this Refactor (Session 5: 2026-02-09)
+
+The **LR 0.01** run shows that while the model is "learning," it is becoming very conservative. It likes the "safe" medical clusters. The **LR 0.09** run was more "aggressive," which actually helped it find the specific `sneezing` link faster.
+   

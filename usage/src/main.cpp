@@ -113,7 +113,7 @@ int main(int argc, char* argv[])
         // Dimensions of the encoder output for one line of the training data
         ptr = cc_tokenizer::allocator<cc_tokenizer::string_character_traits<char>::size_type>().allocate(3);
         ptr[0] = 1; // Batch size
-        ptr[1] = 7; // Number of sequences per line
+        ptr[1] = mntpl /*7*/; // Number of sequences per line 
         ptr[2] = SKIP_GRAM_EMBEDDNG_VECTOR_SIZE; // Embedding vector size, number of features per sequence
         dimensionsOfArray = DIMENSIONSOFARRAY(ptr, 3);
         dimensions = DIMENSIONS(dimensionsOfArray);
@@ -314,7 +314,6 @@ int main(int argc, char* argv[])
             }
         }
 
-
         /*
          * ---------------------------------------
          * How to use temperature during inference
@@ -343,14 +342,15 @@ int main(int argc, char* argv[])
 
             for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i <  default_infer_line; i++)
             {
-                eoutput.read(filename);
+                eoutput.read(filename); // Loop through the file and read one line at a time to reach the desired line.
             }
             
+            // Print encoder output
             for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < eoutput.getShape().getN(); i++)
             {                                  
                 std::cout<< eoutput[i]<< " ";
 
-                if ((i + 1) % eoutput.getShape().getNumberOfColumns() == 0)
+                if ((i + 1) % eoutput.getShape().getNumberOfColumns() == 0) // Each token has its own row.
                 {
                     std::cout<< std::endl;
                 }
@@ -362,12 +362,12 @@ int main(int argc, char* argv[])
             ntpl = parser.get_total_number_of_tokens();
 
             // Forward propagation
-            Collective<double> logits = mlm.infer(eoutput);
+            Collective<double> logits = mlm.infer(eoutput); // Pass by value, not by reference, because mlm.infer() returns a copy of the logits.
 
             //std::cout<< "Logits, ROWS = " << logits.getShape().getNumberOfRows() << ", COLS = " << logits.getShape().getNumberOfColumns() << std::endl;
 
             for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < ntpl; i++)
-            { 
+            {                 
                 logits_row = logits.slice(i*logits.getShape().getNumberOfColumns(), DIMENSIONS{logits.getShape().getNumberOfColumns(), 1, NULL, NULL});
                 predicted_probabilities = Numcy::softmax(logits_row, default_temperature);
 
@@ -378,18 +378,44 @@ int main(int argc, char* argv[])
                     double max_logit = std::numeric_limits<double>::lowest();              
                     cc_tokenizer::string_character_traits<char>::size_type max_logit_index = 0;
 
+                    /*
+                        TODO, improvement: If the very first logit or probability (index 0) happens to be the largest, you suppress it immediately,
+                        and then the loop continues to find the next largest value within the same pass.
+                     */
                     for (cc_tokenizer::string_character_traits<char>::size_type k = 0; k < logits.getShape().getNumberOfColumns(); k++)
-                    {                        
+                    {
+                        if (arg_temperature.i)
+                        {
+                            if (predicted_probabilities[k] > max_logit)
+                            {
+                                max_logit = predicted_probabilities[k];
+                                max_logit_index = k;
+
+                                predicted_probabilities[max_logit_index] = std::numeric_limits<double>::lowest();
+                            }
+                        }
+                        else
+                        {
+                            if (logits[i*logits.getShape().getNumberOfColumns() + k] > max_logit)
+                            {
+                                max_logit = logits[i*logits.getShape().getNumberOfColumns() + k];
+                                max_logit_index = k;
+
+                                logits[i*logits.getShape().getNumberOfColumns() + max_logit_index] = std::numeric_limits<double>::lowest(); 
+                            }
+                        }
+
                         //if (logits[i*logits.getShape().getNumberOfColumns() + k] > max_logit)
-                        if (predicted_probabilities[k] > max_logit)
+                        /*if (predicted_probabilities[k] > max_logit)
                         {
                             max_logit = predicted_probabilities[k];
+
                             max_logit_index = k;
-                        }
+                        }*/
                     }                    
                     std::cout<< max_logit_index << ", " << max_logit << " -> " << vocab[max_logit_index + INDEX_ORIGINATES_AT_VALUE].c_str() << std::endl;
                     //logits[i*logits.getShape().getNumberOfColumns() + max_logit_index] = std::numeric_limits<double>::lowest();                    
-                    predicted_probabilities[max_logit_index] = std::numeric_limits<double>::lowest();
+                    //predicted_probabilities[max_logit_index] = std::numeric_limits<double>::lowest();
                 }
             }                
         }

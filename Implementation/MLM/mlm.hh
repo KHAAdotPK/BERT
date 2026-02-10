@@ -95,7 +95,7 @@ Collective<E> MLM<E, F>::infer(Collective<E>& eo) throw (ala_exception)
     Collective<E> logits = Numcy::dot(eo, w_mlm);
     logits = logits + b_mlm; 
     
-    return logits;
+    return logits; // Pass by value, not by reference
 } 
 
  /*
@@ -128,6 +128,8 @@ Collective<E> MLM<E, F>::infer(Collective<E>& eo) throw (ala_exception)
 template <typename E = double, typename F = cc_tokenizer::string_character_traits<char>::int_type>
 E MLM<E, F>::train(Collective<F>& original, Collective<F>& input, Collective<F>& label, Collective<E>& eo) throw (ala_exception) 
 {
+    gradient_accumulation_steps_counter++;
+
     /*for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < w_mlm.getShape().getN(); i++)
     {
         std::cout<< w_mlm[i] << " ";
@@ -137,7 +139,6 @@ E MLM<E, F>::train(Collective<F>& original, Collective<F>& input, Collective<F>&
             std::cout<< std::endl;
         }
     }*/
-
     
     /*
         Step 1 (TODO)
@@ -176,12 +177,13 @@ E MLM<E, F>::train(Collective<F>& original, Collective<F>& input, Collective<F>&
     std::cout<< "Dimensions: -> " << dims[0] << " -> " << dims[1] << " -> " << dims[2] << << std::endl;*/
 
     Collective<E> logits_row;
-    Collective<E> predicted_probabilities;
+    Collective<E> predicted_probabilities; // Softmax of Logits, will be overwritten in iteration of this method. Because for each iteration this method receives a smal prt of the encoder outpst's label array.
     double loss = 0.0; // Initialize Cross-Entropy loss to zero
     cc_tokenizer::string_character_traits<char>::size_type mask_count = 0; // Initialize mask count to zero
     /*
-        Step 3 Logit-to-Label Mapping (Mask Filtering) 
-        ----------------------------------------------
+        Step 3 Logit-to-Label Mapping (Mask Filtering)
+        (Note:- We can easily put step 3 and step 6 in one loop but they are in separate loops for clarity)
+        ---------------------------------------------------------------------------------------------------
         - Iterate through your `label` array.
         - If label[i] == -100, skip it.
         - For every index $i$ where label[i] != -100, extract the corresponding row from your Logits matrix.
@@ -207,13 +209,13 @@ E MLM<E, F>::train(Collective<F>& original, Collective<F>& input, Collective<F>&
                 so we don't use temperature scaling.
                 Train at $T=1.0$ (This keeps the "math" natural).
              */
-            predicted_probabilities = Numcy::softmax(logits_row, NATURAL_TEMPERATURE);
+            predicted_probabilities = Numcy::softmax(logits_row, NATURAL_TEMPERATURE); // Probabilities for just one row of logits, each token of the sequence has its own logits row. 
             //predicted_probabilities = Numcy::softmax(logits_row);
 
             /*std::cout<< "predicted " << predicted_probabilities.getShape().getNumberOfRows() << " " << predicted_probabilities.getShape().getNumberOfColumns() << std::endl;
             std::cout<< "Label: " << label[i] << std::endl;*/
 
-            loss += -log(predicted_probabilities[label[i] - INDEX_ORIGINATES_AT_VALUE]);
+            loss += -log(predicted_probabilities[label[i] - INDEX_ORIGINATES_AT_VALUE] + EPSILON);
 
             mask_count++;            
         }
@@ -235,12 +237,15 @@ E MLM<E, F>::train(Collective<F>& original, Collective<F>& input, Collective<F>&
         if (label[i] != IGNORE_INDEX && label[i] != INDEX_NOT_FOUND_AT_VALUE)
         {
             //dLogits[i] = predicted_probabilities[i] - (label[i] == i ? 1 : 0);
+            logits_row = logits.slice(i*logits.getShape().getNumberOfColumns(), DIMENSIONS{logits.getShape().getNumberOfColumns(), 1, NULL, NULL});
+
+            predicted_probabilities = Numcy::softmax(logits_row, NATURAL_TEMPERATURE); // Probabilities for just one row of logits, each token of the sequence has its own logits row. 
 
             // --- STEP 6: GRADIENT FOR THIS ROW ---
             for (cc_tokenizer::string_character_traits<char>::size_type j = 0; j < /*logits.getShape().getNumberOfColumns()*/ predicted_probabilities.getShape().getN(); j++)
             {
                 //dLogits[i * logits.getShape().getNumberOfColumns() + j] = predicted_probabilities[i * logits.getShape().getNumberOfColumns() + j] - (label[i] == j ? 1 : 0);
-                E prob = predicted_probabilities[j];
+                E prob = predicted_probabilities[j]; 
                 if (j == label[i] - INDEX_ORIGINATES_AT_VALUE)
                 {
                     dLogits[i*logits.getShape().getNumberOfColumns() + j] = prob - 1.0;
@@ -307,7 +312,7 @@ E MLM<E, F>::train(Collective<F>& original, Collective<F>& input, Collective<F>&
         If you notice the loss starts to "bounce" (e.g., goes from 3.2 to 3.8 suddenly), try dropping it to 0.01 or 0.005.
         High learning rates in C++ can sometimes cause "NaN" (Not a Number) errors if a gradient explodes.
      */
-    double learning_rate = 0.09; // Or whatever alpha you prefer
+    double learning_rate = 0.01; // Or whatever alpha you prefer
     /*
         Step 8: The Weight Update (The Finale)
         --------------------------------------
@@ -337,13 +342,14 @@ E MLM<E, F>::train(Collective<F>& original, Collective<F>& input, Collective<F>&
     // b_mlm = b_mlm - learning_rate * dLogits_db; 
     /*b_mlm = b_mlm - (dLogits_db * learning_rate);*/
 
-    if (gradient_accumulation_steps_counter >= (GRADIENT_ACCUMULATION_STEPS - 1))
+    if (gradient_accumulation_steps_counter >= (GRADIENT_ACCUMULATION_STEPS /*- 1*/))
     {
         this->dLogits_dW = this->dLogits_dW / GRADIENT_ACCUMULATION_STEPS;
         this->dLogits_db = this->dLogits_db / GRADIENT_ACCUMULATION_STEPS;
 
         w_mlm = w_mlm - (this->dLogits_dW * learning_rate);
         b_mlm = b_mlm - (this->dLogits_db * learning_rate);
+
         gradient_accumulation_steps_counter = 0;
 
         this->dLogits_dW = Numcy::zeros<E>(this->dLogits_dW.getShape());
@@ -425,7 +431,7 @@ E MLM<E, F>::train(Collective<F>& original, Collective<F>& input, Collective<F>&
 
         - Backpropagation: Update $W_{mlm}$ and $b_{mlm}$ using the gradient. */   
         
-    gradient_accumulation_steps_counter++;
+    //gradient_accumulation_steps_counter++;
     
     return loss;
 }

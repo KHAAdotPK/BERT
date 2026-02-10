@@ -17,6 +17,15 @@ infer --infer (TODO)\n\
 top-k --top-k (TODO)\n\
 temperature --temperature (TODO)\n"
 
+/*
+    What is EPSILON?
+    ----------------
+    In Machine Learning, the term epsilon is used to refer to a very small constant that is used to prevent division by zero or log if zero.
+    This usually needed if model predicts 0 as a probability and then because division by zero is an error and log of 0 is negative infinity.
+    So before applying such operation this very small value is added to the predicted probabilities.    
+ */
+#define EPSILON 1e-10
+
 #define DEFAULT_INFER_LINE 1
 #define DEFAULT_TOP_K 5
 

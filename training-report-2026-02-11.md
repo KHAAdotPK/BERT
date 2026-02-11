@@ -12,7 +12,7 @@
 
 This morning, I executed four back-to-back training sessions of the model, each consisting of 25000 steps. The goal was to establish a baseline for **System Stability**. By comparing the training logs and inference outputs, I have verified that the C++ engine is mathematically robust, consistently converging to a stable loss state regardless of the initialization of weights.
 
-### **2. Comparative Training Logs ([Raw Data](https://github.com/QKhaa/BERT/blob/main/raw-training-data.txt))**
+### **2. Comparative Training Logs ([Raw Data](https://github.com/KHAAdotPK/BERT/blob/main/raw-training-data.txt))**
 
 The following data tracks the average loss across the four sessions. The near-identical "descent" patterns confirm that the backpropagation and gradient accumulation logic are perfectly synchronized.
 

@@ -12,11 +12,12 @@
 #include "./../../Implementation/lib/read_write_weights/header.hh"
 #include "./../../Implementation/lib/argsv-cpp/lib/parser/parser.hh"
 
-#define COMMAND "verbose --verbose (TODO)\n\
-infer --infer (TODO)\n\
-top-k --top-k (TODO)\n\
-temperature --temperature (TODO)\n\
-learning-rate --learning-rate (TODO)\n"
+#define COMMAND "verbose --verbose (Enable detailed logs of training steps, loss calculations, and weight updates)\n\
+infer --infer (Specify the line number in the dataset to test the inference prediction)\n\
+top-k --top-k (Set the number of highest-probability candidates to display for each predicted token)\n\
+temperature --temperature (Adjust the Softmax 'creativity' knob. T=1.0 is the natural temperature, which passes through the softmax function without scaling the logits. Values <1.0 sharpen the focus on certainties, while values >1.0 broaden diversity.)\n\
+learning-rate --learning-rate (Set the step size for gradient descent; determines how aggressively the model updates weights during training)\n\
+help --help /h -h (Display this usage guide showing all available command-line arguments and their functional descriptions)\n"
 
 /*
     What is EPSILON?
@@ -29,6 +30,11 @@ learning-rate --learning-rate (TODO)\n"
 
 #define DEFAULT_INFER_LINE 1
 #define DEFAULT_TOP_K 5
+/*
+    The Learning Rate ($\eta$): This is quite high for MLM. 
+    If you notice the loss starts to "bounce" (e.g., goes from 3.2 to 3.8 suddenly), try dropping it to 0.01 or 0.005.
+    High learning rates in C++ can sometimes cause "NaN" (Not a Number) errors if a gradient explodes.
+ */
 #define DEFAULT_LEARNING_RATE 0.01
 
 #define NATURAL_TEMPERATURE 1.0

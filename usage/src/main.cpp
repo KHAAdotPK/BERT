@@ -7,7 +7,7 @@
 
 int main(int argc, char* argv[])
 {
-    ARG arg_verbose, arg_infer, arg_top_k, arg_temperature, arg_learning_rate;
+    ARG arg_verbose, arg_infer, arg_top_k, arg_temperature, arg_learning_rate, arg_help;
     cc_tokenizer::csv_parser<cc_tokenizer::String<char>, char> argsv_parser(cc_tokenizer::String<char>(COMMAND));
     FIND_ARG(argv, argc, argsv_parser, "--verbose", arg_verbose);
     FIND_ARG(argv, argc, argsv_parser, "infer", arg_infer);
@@ -18,6 +18,16 @@ int main(int argc, char* argv[])
     FIND_ARG_BLOCK(argv, argc, argsv_parser, arg_temperature);
     FIND_ARG(argv, argc, argsv_parser, "learning-rate", arg_learning_rate);
     FIND_ARG_BLOCK(argv, argc, argsv_parser, arg_learning_rate);
+    FIND_ARG(argv, argc, argsv_parser, "/h", arg_help);
+    FIND_ARG_BLOCK(argv, argc, argsv_parser, arg_help);
+
+    if (arg_help.i)
+    {
+        HELP(argsv_parser, arg_help, ALL);
+        HELP_DUMP(argsv_parser, arg_help);
+        
+        return 0;
+    }
 
     cc_tokenizer::string_character_traits<char>::size_type default_infer_line = DEFAULT_INFER_LINE;
     if (arg_infer.i && arg_infer.argc)
@@ -311,8 +321,11 @@ int main(int argc, char* argv[])
                 }            
                 std::cout<< std::endl;
             }
-                        
-            loss = loss +  mlm.train(original, input, label, eoutput);
+            
+            // -------------------------------------- //
+            // Start training the model for one step  //
+            // -------------------------------------- //
+            loss = loss +  mlm.train(original, input, label, eoutput, default_learning_rate);
 
             counter++;
 

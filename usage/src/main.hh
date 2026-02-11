@@ -15,7 +15,8 @@
 #define COMMAND "verbose --verbose (TODO)\n\
 infer --infer (TODO)\n\
 top-k --top-k (TODO)\n\
-temperature --temperature (TODO)\n"
+temperature --temperature (TODO)\n\
+learning-rate --learning-rate (TODO)\n"
 
 /*
     What is EPSILON?
@@ -28,6 +29,7 @@ temperature --temperature (TODO)\n"
 
 #define DEFAULT_INFER_LINE 1
 #define DEFAULT_TOP_K 5
+#define DEFAULT_LEARNING_RATE 0.01
 
 #define NATURAL_TEMPERATURE 1.0
 #define HIGH_TEMPERATURE 2.0

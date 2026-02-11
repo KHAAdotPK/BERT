@@ -7,7 +7,7 @@
 
 int main(int argc, char* argv[])
 {
-    ARG arg_verbose, arg_infer, arg_top_k, arg_temperature;
+    ARG arg_verbose, arg_infer, arg_top_k, arg_temperature, arg_learning_rate;
     cc_tokenizer::csv_parser<cc_tokenizer::String<char>, char> argsv_parser(cc_tokenizer::String<char>(COMMAND));
     FIND_ARG(argv, argc, argsv_parser, "--verbose", arg_verbose);
     FIND_ARG(argv, argc, argsv_parser, "infer", arg_infer);
@@ -16,6 +16,8 @@ int main(int argc, char* argv[])
     FIND_ARG_BLOCK(argv, argc, argsv_parser, arg_top_k);
     FIND_ARG(argv, argc, argsv_parser, "temperature", arg_temperature);
     FIND_ARG_BLOCK(argv, argc, argsv_parser, arg_temperature);
+    FIND_ARG(argv, argc, argsv_parser, "learning-rate", arg_learning_rate);
+    FIND_ARG_BLOCK(argv, argc, argsv_parser, arg_learning_rate);
 
     cc_tokenizer::string_character_traits<char>::size_type default_infer_line = DEFAULT_INFER_LINE;
     if (arg_infer.i && arg_infer.argc)
@@ -33,6 +35,12 @@ int main(int argc, char* argv[])
     if (arg_temperature.i && arg_temperature.argc)
     {
         default_temperature = atof(argv[arg_temperature.i + 1]);
+    }
+
+    double default_learning_rate = DEFAULT_LEARNING_RATE;
+    if (arg_learning_rate.i && arg_learning_rate.argc)
+    {
+        default_learning_rate = atof(argv[arg_learning_rate.i + 1]);
     }
 
     double loss = 0.0;

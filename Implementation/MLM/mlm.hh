@@ -25,16 +25,15 @@
 
     public:
         MLM();
-        MLM(CORPUS&, cc_tokenizer::string_character_traits<char>::size_type = SKIP_GRAM_EMBEDDNG_VECTOR_SIZE);
+        MLM(CORPUS&, cc_tokenizer::string_character_traits<char>::size_type = SKIP_GRAM_EMBEDDNG_VECTOR_SIZE, E = DEFAULT_LEARNING_RATE);
         
-
         ~MLM();
         Collective<E> infer(Collective<E>&);
         E train(Collective<F>&, Collective<F>&, Collective<F>&, Collective<E>&);    
  };
 
  template <typename E = double, typename F = cc_tokenizer::string_character_traits<char>::int_type>
- MLM<E, F>::MLM() : w_mlm(), b_mlm(), dLogits_dW(), dLogits_db(), gradient_accumulation_steps_counter(0)
+ MLM<E, F>::MLM() : w_mlm(), b_mlm(), dLogits_dW(), dLogits_db(), gradient_accumulation_steps_counter(0), learning_rate(DEFAULT_LEARNING_RATE)
  {
     
  }

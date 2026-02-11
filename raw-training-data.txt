@@ -1,0 +1,228 @@
+PS F:\BERT\usage> ./main.exe infer 10 temperature 0.3
+Reading training data from the file...
+Creating parser for training data...
+Creating vocabulary using the training data parser...
+Reading pre-trained word vectors from the file...
+Creating original weights from the pre-trained word vectors...
+Determining maximum sequence length...
+Step: 1000 | Average Loss: 5.18126
+Step: 2000 | Average Loss: 4.83622
+Step: 3000 | Average Loss: 4.56642
+Step: 4000 | Average Loss: 4.344
+Step: 5000 | Average Loss: 4.17356
+Step: 6000 | Average Loss: 4.04279
+Step: 7000 | Average Loss: 3.9333
+Step: 8000 | Average Loss: 3.8567
+Step: 9000 | Average Loss: 3.78501
+Step: 10000 | Average Loss: 3.72423
+Step: 11000 | Average Loss: 3.67293
+Step: 12000 | Average Loss: 3.63361
+Step: 13000 | Average Loss: 3.59784
+Step: 14000 | Average Loss: 3.56554
+Step: 15000 | Average Loss: 3.53877
+Step: 16000 | Average Loss: 3.513
+Step: 17000 | Average Loss: 3.4915
+Step: 18000 | Average Loss: 3.47598
+Step: 19000 | Average Loss: 3.4584
+Step: 20000 | Average Loss: 3.44379
+Step: 21000 | Average Loss: 3.43043
+Step: 22000 | Average Loss: 3.41823
+Step: 23000 | Average Loss: 3.40829
+Step: 24000 | Average Loss: 3.39785
+Step: 25000 | Average Loss: 3.38896
+default_infer_line = 10
+-2.54968 1.95186 0.159263 -2.89801 0.969118 -0.393037 -0.0821615 1.79531
+-1.61708 2.5377 1.12951 0.5752 0.920301 0.377153 -1.11113 2.67982
+-1.21579 1.63847 -0.318984 0.611676 0.0141521 -1.06068 1.39752 2.3464
+0 0 0 0 0 0 0 0
+0 0 0 0 0 0 0 0
+0 0 0 0 0 0 0 0
+0 0 0 0 0 0 0 0
+joint-pain shortness-of-breath runny-nose
+joint-pain: 11, 0.213005 -> swelling
+22, 0.139772 -> sweating
+8, 0.0376237 -> blurred-vision
+27, 0.0354816 -> sneezing
+15, 0.0295492 -> fatigue
+shortness-of-breath: 11, 0.0948386 -> swelling
+22, 0.0930525 -> sweating
+13, 0.0583329 -> nausea
+15, 0.0479335 -> fatigue
+27, 0.0430343 -> sneezing
+runny-nose: 11, 0.139907 -> swelling
+27, 0.0569134 -> sneezing
+13, 0.0463278 -> nausea
+22, 0.0437135 -> sweating
+26, 0.0373391 -> abdominal-pain
+
+PS F:\BERT\usage> ./main.exe infer 10 temperature 0.3
+Reading training data from the file...
+Creating parser for training data...
+Creating vocabulary using the training data parser...
+Reading pre-trained word vectors from the file...
+Creating original weights from the pre-trained word vectors...
+Determining maximum sequence length...
+Step: 1000 | Average Loss: 5.2477
+Step: 2000 | Average Loss: 4.89743
+Step: 3000 | Average Loss: 4.61392
+Step: 4000 | Average Loss: 4.40408
+Step: 5000 | Average Loss: 4.25255
+Step: 6000 | Average Loss: 4.10864
+Step: 7000 | Average Loss: 3.98973
+Step: 8000 | Average Loss: 3.89805
+Step: 9000 | Average Loss: 3.82143
+Step: 10000 | Average Loss: 3.75682
+Step: 11000 | Average Loss: 3.70381
+Step: 12000 | Average Loss: 3.66056
+Step: 13000 | Average Loss: 3.62518
+Step: 14000 | Average Loss: 3.5948
+Step: 15000 | Average Loss: 3.56376
+Step: 16000 | Average Loss: 3.53758
+Step: 17000 | Average Loss: 3.51486
+Step: 18000 | Average Loss: 3.49645
+Step: 19000 | Average Loss: 3.47946
+Step: 20000 | Average Loss: 3.46464
+Step: 21000 | Average Loss: 3.45052
+Step: 22000 | Average Loss: 3.4389
+Step: 23000 | Average Loss: 3.42814
+Step: 24000 | Average Loss: 3.41776
+Step: 25000 | Average Loss: 3.40778
+default_infer_line = 10
+-2.54968 1.95186 0.159263 -2.89801 0.969118 -0.393037 -0.0821615 1.79531
+-1.61708 2.5377 1.12951 0.5752 0.920301 0.377153 -1.11113 2.67982
+-1.21579 1.63847 -0.318984 0.611676 0.0141521 -1.06068 1.39752 2.3464
+0 0 0 0 0 0 0 0
+0 0 0 0 0 0 0 0
+0 0 0 0 0 0 0 0
+0 0 0 0 0 0 0 0
+joint-pain shortness-of-breath runny-nose
+joint-pain: 11, 0.203499 -> swelling
+22, 0.0803648 -> sweating
+27, 0.0547522 -> sneezing
+17, 0.0302221 -> cough
+20, 0.0270462 -> joint-pain
+shortness-of-breath: 12, 0.104569 -> appetite-loss
+27, 0.0642895 -> sneezing
+8, 0.0491476 -> blurred-vision
+22, 0.0447272 -> sweating
+20, 0.0423375 -> joint-pain
+runny-nose: 11, 0.113569 -> swelling
+27, 0.0634026 -> sneezing
+24, 0.0529143 -> headache
+13, 0.042478 -> nausea
+15, 0.0383243 -> fatigue
+
+PS F:\BERT\usage> ./main.exe infer 10 temperature 0.3
+Reading training data from the file...
+Creating parser for training data...
+Creating vocabulary using the training data parser...
+Reading pre-trained word vectors from the file...
+Creating original weights from the pre-trained word vectors...
+Determining maximum sequence length...
+Step: 1000 | Average Loss: 4.81704
+Step: 2000 | Average Loss: 4.54814
+Step: 3000 | Average Loss: 4.34003
+Step: 4000 | Average Loss: 4.16605
+Step: 5000 | Average Loss: 4.02206
+Step: 6000 | Average Loss: 3.89969
+Step: 7000 | Average Loss: 3.81145
+Step: 8000 | Average Loss: 3.73941
+Step: 9000 | Average Loss: 3.68031
+Step: 10000 | Average Loss: 3.63118
+Step: 11000 | Average Loss: 3.58919
+Step: 12000 | Average Loss: 3.5573
+Step: 13000 | Average Loss: 3.52324
+Step: 14000 | Average Loss: 3.49932
+Step: 15000 | Average Loss: 3.47714
+Step: 16000 | Average Loss: 3.45634
+Step: 17000 | Average Loss: 3.43853
+Step: 18000 | Average Loss: 3.42396
+Step: 19000 | Average Loss: 3.40865
+Step: 20000 | Average Loss: 3.39777
+Step: 21000 | Average Loss: 3.38894
+Step: 22000 | Average Loss: 3.37854
+Step: 23000 | Average Loss: 3.36961
+Step: 24000 | Average Loss: 3.36008
+Step: 25000 | Average Loss: 3.35272
+default_infer_line = 10
+-2.54968 1.95186 0.159263 -2.89801 0.969118 -0.393037 -0.0821615 1.79531
+-1.61708 2.5377 1.12951 0.5752 0.920301 0.377153 -1.11113 2.67982
+-1.21579 1.63847 -0.318984 0.611676 0.0141521 -1.06068 1.39752 2.3464
+0 0 0 0 0 0 0 0
+0 0 0 0 0 0 0 0
+0 0 0 0 0 0 0 0
+0 0 0 0 0 0 0 0
+joint-pain shortness-of-breath runny-nose
+joint-pain: 4, 0.281134 -> weight-loss
+11, 0.159179 -> swelling
+22, 0.0759705 -> sweating
+27, 0.0454113 -> sneezing
+26, 0.0241756 -> abdominal-pain
+shortness-of-breath: 11, 0.114767 -> swelling
+12, 0.0738226 -> appetite-loss
+27, 0.0618974 -> sneezing
+20, 0.0508686 -> joint-pain
+22, 0.0495399 -> sweating
+runny-nose: 11, 0.131585 -> swelling
+27, 0.063367 -> sneezing
+15, 0.0523109 -> fatigue
+20, 0.0477018 -> joint-pain
+24, 0.0465833 -> headache
+
+PS F:\BERT\usage> ./main.exe infer 10 temperature 0.3
+Reading training data from the file...
+Creating parser for training data...
+Creating vocabulary using the training data parser...
+Reading pre-trained word vectors from the file...
+Creating original weights from the pre-trained word vectors...
+Determining maximum sequence length...
+Step: 1000 | Average Loss: 4.9964
+Step: 2000 | Average Loss: 4.76219
+Step: 3000 | Average Loss: 4.51846
+Step: 4000 | Average Loss: 4.32028
+Step: 5000 | Average Loss: 4.15215
+Step: 6000 | Average Loss: 4.03617
+Step: 7000 | Average Loss: 3.93045
+Step: 8000 | Average Loss: 3.84693
+Step: 9000 | Average Loss: 3.77803
+Step: 10000 | Average Loss: 3.7215
+Step: 11000 | Average Loss: 3.67187
+Step: 12000 | Average Loss: 3.63069
+Step: 13000 | Average Loss: 3.59338
+Step: 14000 | Average Loss: 3.56269
+Step: 15000 | Average Loss: 3.5352
+Step: 16000 | Average Loss: 3.51318
+Step: 17000 | Average Loss: 3.49343
+Step: 18000 | Average Loss: 3.47481
+Step: 19000 | Average Loss: 3.45772
+Step: 20000 | Average Loss: 3.44397
+Step: 21000 | Average Loss: 3.43049
+Step: 22000 | Average Loss: 3.41801
+Step: 23000 | Average Loss: 3.40647
+Step: 24000 | Average Loss: 3.39619
+Step: 25000 | Average Loss: 3.387
+default_infer_line = 10
+-2.54968 1.95186 0.159263 -2.89801 0.969118 -0.393037 -0.0821615 1.79531
+-1.61708 2.5377 1.12951 0.5752 0.920301 0.377153 -1.11113 2.67982
+-1.21579 1.63847 -0.318984 0.611676 0.0141521 -1.06068 1.39752 2.3464
+0 0 0 0 0 0 0 0
+0 0 0 0 0 0 0 0
+0 0 0 0 0 0 0 0
+0 0 0 0 0 0 0 0
+joint-pain shortness-of-breath runny-nose
+joint-pain: 11, 0.231131 -> swelling
+22, 0.117247 -> sweating
+8, 0.0309714 -> blurred-vision
+19, 0.0303793 -> rash
+20, 0.0228081 -> joint-pain
+shortness-of-breath: 11, 0.0797327 -> swelling
+22, 0.0794116 -> sweating
+26, 0.0486764 -> abdominal-pain
+27, 0.0462282 -> sneezing
+21, 0.0346525 -> runny-nose
+runny-nose: 11, 0.101496 -> swelling
+27, 0.0551844 -> sneezing
+19, 0.0484074 -> rash
+18, 0.0445485 -> chest-pain
+20, 0.0441692 -> joint-pain
+

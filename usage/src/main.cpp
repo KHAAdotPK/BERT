@@ -156,13 +156,13 @@ int main(int argc, char* argv[])
         }
         
         ptr =  reinterpret_cast<cc_tokenizer::string_character_traits<char>::size_type*>( cc_tokenizer::allocator<cc_tokenizer::string_character_traits<char>::int_type>().allocate(mntpl) );
-        original = Collective<cc_tokenizer::string_character_traits<char>::int_type>(reinterpret_cast<cc_tokenizer::string_character_traits<char>::int_type*>(ptr), DIMENSIONS{mntpl, 1, NULL, NULL});
+        original = Collective<cc_tokenizer::string_character_traits<char>::int_type>(reinterpret_cast<cc_tokenizer::string_character_traits<char>::int_type*>(ptr), DIMENSIONS{mntpl /*Columns*/, 1 /*Rows*/, NULL, NULL});
         
         ptr =  reinterpret_cast<cc_tokenizer::string_character_traits<char>::size_type*>( cc_tokenizer::allocator<cc_tokenizer::string_character_traits<char>::int_type>().allocate(mntpl) );
-        input = Collective<cc_tokenizer::string_character_traits<char>::int_type>(reinterpret_cast<cc_tokenizer::string_character_traits<char>::int_type*>(ptr), DIMENSIONS{mntpl, 1, NULL, NULL});      
+        input = Collective<cc_tokenizer::string_character_traits<char>::int_type>(reinterpret_cast<cc_tokenizer::string_character_traits<char>::int_type*>(ptr), DIMENSIONS{mntpl /*Columns*/, 1 /*Rows*/, NULL, NULL});      
 
         ptr =  reinterpret_cast<cc_tokenizer::string_character_traits<char>::size_type*>( cc_tokenizer::allocator<cc_tokenizer::string_character_traits<char>::int_type>().allocate(mntpl) );
-        label = Collective<cc_tokenizer::string_character_traits<char>::int_type>(reinterpret_cast<cc_tokenizer::string_character_traits<char>::int_type*>(ptr), DIMENSIONS{mntpl, 1, NULL, NULL});
+        label = Collective<cc_tokenizer::string_character_traits<char>::int_type>(reinterpret_cast<cc_tokenizer::string_character_traits<char>::int_type*>(ptr), DIMENSIONS{mntpl /*Columns*/, 1 /*Rows*/, NULL, NULL});
 
         /*
             The 80-10-10 Rule Implementation: For each of the lines, pick MLM_PROBABILITY of the tokens. For each "picked" token:
@@ -325,7 +325,8 @@ int main(int argc, char* argv[])
             // -------------------------------------- //
             // Start training the model for one step  //
             // -------------------------------------- //
-            loss = loss +  mlm.train(original, input, label, eoutput, default_learning_rate);
+            loss = loss + mlm.train(original, input, label, eoutput, default_learning_rate);
+            //loss = loss +  mlm.train_old(original, input, label, eoutput, default_learning_rate);
 
             counter++;
 
@@ -389,7 +390,7 @@ int main(int argc, char* argv[])
 
             for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < ntpl; i++)
             {                 
-                logits_row = logits.slice(i*logits.getShape().getNumberOfColumns(), DIMENSIONS{logits.getShape().getNumberOfColumns(), 1, NULL, NULL});
+                logits_row = logits.slice(i*logits.getShape().getNumberOfColumns(), DIMENSIONS{logits.getShape().getNumberOfColumns() /*Columns*/, 1 /*Rows*/, NULL, NULL});
                 predicted_probabilities = Numcy::softmax(logits_row, default_temperature);
 
                 std::cout<< parser.get_token_by_number(i + 1).c_str() << ": ";

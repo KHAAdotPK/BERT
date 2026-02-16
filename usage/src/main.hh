@@ -33,6 +33,8 @@ epochs --epochs (Set the number of epochs/iterations/sessions to train the model
 #define DEFAULT_TOP_K 5
 #define DEFAULT_EPOCHS 1
 
+#define PRINT_DEBUG_INFO_EVERY 1000
+
 /*
     The Learning Rate ($\eta$): This is quite high for MLM. 
     If you notice the loss starts to "bounce" (e.g., goes from 3.2 to 3.8 suddenly), try dropping it to 0.01 or 0.005.

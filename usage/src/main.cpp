@@ -342,7 +342,7 @@ int main(int argc, char* argv[])
 
             counter++;
 
-            if (counter % 1000 == 0)
+            if (counter % PRINT_DEBUG_INFO_EVERY == 0)
             {
                 std::cout<< "Step: " << counter << " | Average Loss: " << loss / counter << std::endl;
             }

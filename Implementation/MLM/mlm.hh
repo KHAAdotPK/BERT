@@ -440,8 +440,10 @@ E MLM<E, F>::train(Collective<F>& original, Collective<F>& input, Collective<F>&
                     idx = label[i];
                 }
 
+                // Gradient: probability - 1 for correct class, probability - 0 for others
                 dLogits[i*dLogits.getShape().getNumberOfColumns() + idx - INDEX_ORIGINATES_AT_VALUE] = predicted_probabilities[idx - INDEX_ORIGINATES_AT_VALUE] - 1;
 
+                // Gradient: probability - 0 for others
                 for (cc_tokenizer::string_character_traits<char>::size_type j = 0; j < predicted_probabilities.getShape().getN(); j++)
                 {
                     if (j != idx - INDEX_ORIGINATES_AT_VALUE)
@@ -453,13 +455,14 @@ E MLM<E, F>::train(Collective<F>& original, Collective<F>& input, Collective<F>&
                 loss += -log(predicted_probabilities[idx - INDEX_ORIGINATES_AT_VALUE] + EPSILON);
                 mask_count++;
             }
-            else
+            // NOTE :- DONOT REMOVE FOLLOWING COMMENT BLOCK, KEEP IT FOR DOCUMENTATION PURPOSES
+            /*else // IGNORE_INDEX positions, we are not setting gradients for IGNORE_INDEX positions
             {
                 for (cc_tokenizer::string_character_traits<char>::size_type j = 0; j < predicted_probabilities.getShape().getN(); j++)
                 {
                     dLogits[i*dLogits.getShape().getNumberOfColumns() + j] = predicted_probabilities[j] - 0;
                 }
-            }
+            }*/
                          
             idx = 0;
         }

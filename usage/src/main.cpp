@@ -7,7 +7,7 @@
 
 int main(int argc, char* argv[])
 {
-    ARG arg_verbose, arg_infer, arg_top_k, arg_temperature, arg_learning_rate, arg_help;
+    ARG arg_verbose, arg_infer, arg_top_k, arg_temperature, arg_learning_rate, arg_help, arg_epochs;
     cc_tokenizer::csv_parser<cc_tokenizer::String<char>, char> argsv_parser(cc_tokenizer::String<char>(COMMAND));
     FIND_ARG(argv, argc, argsv_parser, "--verbose", arg_verbose);
     FIND_ARG(argv, argc, argsv_parser, "infer", arg_infer);
@@ -20,6 +20,8 @@ int main(int argc, char* argv[])
     FIND_ARG_BLOCK(argv, argc, argsv_parser, arg_learning_rate);
     FIND_ARG(argv, argc, argsv_parser, "/h", arg_help);
     FIND_ARG_BLOCK(argv, argc, argsv_parser, arg_help);
+    FIND_ARG(argv, argc, argsv_parser, "epochs", arg_epochs);
+    FIND_ARG_BLOCK(argv, argc, argsv_parser, arg_epochs);
 
     if (arg_help.i)
     {
@@ -51,6 +53,12 @@ int main(int argc, char* argv[])
     if (arg_learning_rate.i && arg_learning_rate.argc)
     {
         default_learning_rate = atof(argv[arg_learning_rate.i + 1]);
+    }
+    
+    cc_tokenizer::string_character_traits<char>::size_type default_epochs = DEFAULT_EPOCHS;
+    if (arg_epochs.i && arg_epochs.argc)
+    {
+        default_epochs = atoi(argv[arg_epochs.i + 1]);
     }
 
     double loss = 0.0;
@@ -177,7 +185,11 @@ int main(int argc, char* argv[])
 
         // Random number generator, used for shuffling the indices, choice_array and selecting random words from the vocabulary for damaging the encoder output
         static std::mt19937 gen(std::random_device{}());
-    
+
+        for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < default_epochs; i++)
+        {         
+            std::cout<< "Epoch: " << i + 1 << " of " << default_epochs << " epochs." << std::endl;
+
         // Implementation of the triple buffer
         while (parser.go_to_next_line() != cc_tokenizer::string_character_traits<char>::eof())
         { 
@@ -334,7 +346,15 @@ int main(int argc, char* argv[])
             {
                 std::cout<< "Step: " << counter << " | Average Loss: " << loss / counter << std::endl;
             }
-        }
+        } // End while()
+
+        parser.reset(LINES);
+        parser.reset(TOKENS);
+
+        // Close file here
+        eoutput.close_read();
+
+    } // End for
 
         /*
          * ---------------------------------------
@@ -360,7 +380,7 @@ int main(int argc, char* argv[])
         std::cout<< "default_infer_line = " << default_infer_line << std::endl;
         {
             // Inference
-            eoutput.close_read();
+            //eoutput.close_read();
 
             for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i <  default_infer_line; i++)
             {

@@ -18,8 +18,11 @@
         $$Hidden = \text{Activation}(Input \cdot W_{hidden} + b_{hidden})$$
         $$Logits = \text{Activation}(Hidden \cdot W_{output} + b_{output})$$        
      */ 
-    Collective<E> w_hidden; // Hidden layer weights: [d_model x d_model]
-    Collective<E> b_hidden; // Hidden layer bias: [1 x d_model]
+    Collective<E> w_hidden_1; // Hidden layer weights: [d_model x d_model]
+    Collective<E> b_hidden_1; // Hidden layer bias: [1 x d_model]
+
+    Collective<E> w_hidden_2; // Hidden layer weights: [d_model x d_model]
+    Collective<E> b_hidden_2; // Hidden layer bias: [1 x d_model]
 
     /*
         Output Layer
@@ -34,10 +37,12 @@
         Instead of updating the weights after every single sentence (batch size = 1), we can accumulate the gradients from multiple sentences (e.g., 16) and then update the weights once. This simulates a larger batch size without requiring more memory.
         Why this helps: With a batch size of 1, the model sees only one example at a time. If that example is an outlier or noisy, the model's weights can shift dramatically in the wrong direction. Accumulating gradients smooths out these updates, leading to more stable training and better generalization.
         Implementation: We can add a counter to your train loop. For every sentence, we calculate the gradients but don't update the weights immediately. We add them to dLogits_dw and dLogits_db. Every 16 iterations, we perform the weight update and then reset the accumulators.        
+
+        // One set of accumulators per layer
      */
 
-    Collective<E> dHidden_dw; // Gradient of hidden layer with respect to weights
-    Collective<E> dHidden_db; // Gradient of hidden layer with respect to bias
+    Collective<E> dHidden_dw_1; // Gradient of hidden layer with respect to weights
+    Collective<E> dHidden_db_1; // Gradient of hidden layer with respect to bias
 
     Collective<E> dOutput_dw; // Gradient of output layer with respect to weights
     Collective<E> dOutput_db; // Gradient of output layer with respect to bias
@@ -54,7 +59,7 @@
         allowing the Chain Rule to work its magic.
      */
 
-    Collective<E> last_hidden_raw; // Z1 = Input * W_hidden + b_hidden
+    Collective<E> last_hidden_raw; // Z1 = Input * W_hidden_1 + b_hidden_1
     Collective<E> last_hidden_activated; // H1 = ReLU(Z1)
 
     Collective<E> forward_propagation(Collective<E>&) throw (ala_exception);
@@ -67,13 +72,11 @@
         ~MLM();
         Collective<E> infer(Collective<E>&) throw (ala_exception);
         E train(Collective<F>&, Collective<F>&, Collective<F>&, Collective<E>&, E = DEFAULT_LEARNING_RATE) throw (ala_exception);
-        E train_old(Collective<F>&, Collective<F>&, Collective<F>&, Collective<E>&, E = DEFAULT_LEARNING_RATE);
-        
-        
+        E train_old(Collective<F>&, Collective<F>&, Collective<F>&, Collective<E>&, E = DEFAULT_LEARNING_RATE);                
  };
 
  template <typename E = double, typename F = cc_tokenizer::string_character_traits<char>::int_type>
- MLM<E, F>::MLM() : w_hidden(), b_hidden(), w_output(), b_output(), dHidden_dw(), dHidden_db(), dOutput_dw(), dOutput_db(), gradient_accumulation_steps_counter(0)
+ MLM<E, F>::MLM() : w_hidden_1(), b_hidden_1(), w_output(), b_output(), dHidden_dw_1(), dHidden_db_1(), dOutput_dw(), dOutput_db(), gradient_accumulation_steps_counter(0)
  {
     
  }
@@ -96,9 +99,9 @@
      */
 
     // [d_model x d_model]
-    w_hidden = Numcy::Random::randn_xavier<E>(DIMENSIONS{d_model /*Columns*/, d_model /*Rows*/, NULL, NULL}, false);
+    w_hidden_1 = Numcy::Random::randn_xavier<E>(DIMENSIONS{d_model /*Columns*/, d_model /*Rows*/, NULL, NULL}, false);
     // [1 x d_model]
-    b_hidden = Numcy::zeros<E>(DIMENSIONS{d_model /*Columns*/, 1 /*Rows*/, NULL, NULL});
+    b_hidden_1 = Numcy::zeros<E>(DIMENSIONS{d_model /*Columns*/, 1 /*Rows*/, NULL, NULL});
 
     // [d_model x vocab_size]
     w_output = Numcy::Random::randn_xavier<E>(DIMENSIONS{vocab.numberOfUniqueTokens() /*Columns*/, d_model /*Rows*/, NULL, NULL}, false);
@@ -112,8 +115,8 @@
         Why this helps: With a batch size of 1, the model sees only one example at a time. If that example is an outlier or noisy, the model's weights can shift dramatically in the wrong direction. Accumulating gradients smooths out these updates, leading to more stable training and better generalization.
         Implementation: We can add a counter to your train loop. For every sentence, we calculate the gradients but don't update the weights immediately. We add them to dLogits_dw and dLogits_db. Every 16 iterations, we perform the weight update and then reset the accumulators.        
      */
-    dHidden_dw = Numcy::zeros<E>(w_hidden.getShape()); // Gradient of hidden layer with respect to weights
-    dHidden_db = Numcy::zeros<E>(b_hidden.getShape()); // Gradient of hidden layer with respect to bias
+    dHidden_dw_1 = Numcy::zeros<E>(w_hidden_1.getShape()); // Gradient of hidden layer with respect to weights
+    dHidden_db_1 = Numcy::zeros<E>(b_hidden_1.getShape()); // Gradient of hidden layer with respect to bias
 
     dOutput_dw = Numcy::zeros<E>(w_output.getShape()); // Gradient of output layer with respect to weights
     dOutput_db = Numcy::zeros<E>(b_output.getShape()); // Gradient of output layer with respect to bias
@@ -197,9 +200,9 @@ Collective<E> MLM<E, F>::backward_propagation(Collective<E>& eo, /*The original 
         eo_transpose_dot_dLogits_dot_w_output_transposed = Numcy::dot(eo_transposed, dLogits_dot_w_output_transposed);
 
         // Accumulate into class level storage
-        this->dHidden_dw = this->dHidden_dw + eo_transpose_dot_dLogits_dot_w_output_transposed;
+        this->dHidden_dw_1 = this->dHidden_dw_1 + eo_transpose_dot_dLogits_dot_w_output_transposed;
         dLogits_dot_w_output_transposed_sum = Numcy::sum(dLogits_dot_w_output_transposed, AXIS_COLUMN);
-        this->dHidden_db = this->dHidden_db + dLogits_dot_w_output_transposed_sum;
+        this->dHidden_db_1 = this->dHidden_db_1 + dLogits_dot_w_output_transposed_sum;
     }
     catch (ala_exception& e)
     {
@@ -235,7 +238,7 @@ Collective<E> MLM<E, F>::backward_propagation(Collective<E>& eo, /*The original 
  * between medical symptoms that a simple linear model cannot capture.
  *
  * @section Math_Logic Mathematical Transformation:
- * 1. Hidden Layer Projection: Z1 = (eo * W_hidden) + b_hidden
+ * 1. Hidden Layer Projection: Z1 = (eo * W_hidden_1) + b_hidden_1
  * 2. Activation Function:    H1 = ReLU(Z1)  <-- Introduces non-linearity/sparsity
  * 3. Output Layer Projection: Z2 = (H1 * W_output) + b_output
  *
@@ -289,13 +292,13 @@ Collective<E> MLM<E, F>::forward_propagation(Collective<E>& eo) throw (ala_excep
     /*
         Forward Propagation/Pass (Inference)
         ------------------------------------
-        Linear Projection: For every token in the sequence, calculate: eo[i] x w_hidden + b_hidden  
+        Linear Projection: For every token in the sequence, calculate: eo[i] x w_hidden_1 + b_hidden_1  
      */
     // 1. INPUT TO HIDDEN TRANSFORMATION
     // [mntpl x d_model] * [d_model x d_model] = [mntpl x d_model]
-    this->last_hidden_raw = Numcy::dot(eo, w_hidden); // $$Z_1 = eo \cdot W_{hidden}$$
+    this->last_hidden_raw = Numcy::dot(eo, w_hidden_1); // $$Z_1 = eo \cdot W_{hidden_1}$$
     // [mntpl x d_model] + [1 x d_model] = [mntpl x d_model]
-    this->last_hidden_raw = this->last_hidden_raw + this->b_hidden; // $$Z_1 = Z_1 + b_{hidden}$$
+    this->last_hidden_raw = this->last_hidden_raw + this->b_hidden_1; // $$Z_1 = Z_1 + b_{hidden_1}$$
     
     // 2. ACTIVATION (Hidden to Hidden, Non-Linearity)
     /*
@@ -481,16 +484,16 @@ E MLM<E, F>::train(Collective<F>& original, Collective<F>& input, Collective<F>&
 
         /*this->dOutput_dw = this->dOutput_dw * scale;
         this->dOutput_db = this->dOutput_db * scale;
-        this->dHidden_dw = this->dHidden_dw * scale;
-        this->dHidden_db = this->dHidden_db * scale;*/
+        this->dHidden_dw_1 = this->dHidden_dw_1 * scale;
+        this->dHidden_db_1 = this->dHidden_db_1 * scale;*/
 
         // Update Output Layer: W = W - (LR * dW)
         /*this->w_output = this->w_output - (this->dOutput_dw * learning_rate);
         this->b_output = this->b_output - (this->dOutput_db * learning_rate);*/
 
         // Update Hidden Layer: W = W - (LR * dW)
-        /*this->w_hidden = this->w_hidden - (this->dHidden_dw * learning_rate);
-        this->b_hidden = this->b_hidden - (this->dHidden_db * learning_rate);*/
+        /*this->w_hidden_1 = this->w_hidden_1 - (this->dHidden_dw_1 * learning_rate);
+        this->b_hidden_1 = this->b_hidden_1 - (this->dHidden_db_1 * learning_rate);*/
 
         // Only update weights every GRADIENT_ACCUMULATION_STEPS steps
         if (this->gradient_accumulation_steps_counter >= GRADIENT_ACCUMULATION_STEPS)
@@ -500,24 +503,24 @@ E MLM<E, F>::train(Collective<F>& original, Collective<F>& input, Collective<F>&
             // We divide by GRADIENT_ACCUMULATION_STEPS to average them out.
             this->dOutput_dw = this->dOutput_dw * scale;
             this->dOutput_db = this->dOutput_db * scale;
-            this->dHidden_dw = this->dHidden_dw * scale;
-            this->dHidden_db = this->dHidden_db * scale;
+            this->dHidden_dw_1 = this->dHidden_dw_1 * scale;
+            this->dHidden_db_1 = this->dHidden_db_1 * scale;
 
             // Update Output Layer: W = W - (LR * dW)
             this->w_output = this->w_output - (this->dOutput_dw * learning_rate);
             this->b_output = this->b_output - (this->dOutput_db * learning_rate);
 
             // Update Hidden Layer: W = W - (LR * dW)
-            this->w_hidden = this->w_hidden - (this->dHidden_dw * learning_rate);
-            this->b_hidden = this->b_hidden - (this->dHidden_db * learning_rate);
+            this->w_hidden_1 = this->w_hidden_1 - (this->dHidden_dw_1 * learning_rate);
+            this->b_hidden_1 = this->b_hidden_1 - (this->dHidden_db_1 * learning_rate);
             
             this->gradient_accumulation_steps_counter = 0;
 
             // RESET ACCUMULATORS
             this->dOutput_dw = Numcy::zeros<E>(this->w_output.getShape());
             this->dOutput_db = Numcy::zeros<E>(this->b_output.getShape());
-            this->dHidden_dw = Numcy::zeros<E>(this->w_hidden.getShape());
-            this->dHidden_db = Numcy::zeros<E>(this->b_hidden.getShape());
+            this->dHidden_dw_1 = Numcy::zeros<E>(this->w_hidden_1.getShape());
+            this->dHidden_db_1 = Numcy::zeros<E>(this->b_hidden_1.getShape());
         }
     }    
     catch (ala_exception& e)

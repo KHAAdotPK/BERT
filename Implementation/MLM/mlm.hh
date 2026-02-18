@@ -12,21 +12,31 @@
     cc_tokenizer::string_character_traits<char>::size_type gradient_accumulation_steps_counter;
   
     /*
-        Hidden Layer (Set of internal features)
-        ---------------------------------------
-        With the Hidden Layer, we are going to implement: "Feed Forward Network (FFN)"
-        $$Hidden = \text{Activation}(Input \cdot W_{hidden} + b_{hidden})$$
-        $$Logits = \text{Activation}(Hidden \cdot W_{output} + b_{output})$$        
+        Layer 1.
+
+        Hidden_1 Layer (Set of internal features)
+        -----------------------------------------
+        With the Hidden_1 Layer, we are going to implement: "Feed Forward Network (FFN)"
+        $$Hidden_1 = \text{Activation}(Input \cdot W_{hidden_1} + b_{hidden_1})$$                
      */ 
     Collective<E> w_hidden_1; // Hidden layer weights: [d_model x d_model]
     Collective<E> b_hidden_1; // Hidden layer bias: [1 x d_model]
+    /*
+        Layer 2.
 
+        Hidden_2 Layer (Set of internal features)
+        -----------------------------------------
+        With the Hidden_2 Layer, we are going to implement: "Feed Forward Network (FFN)"
+        $$Hidden_2 = \text{Activation}(Hidden_1 \cdot W_{hidden_2} + b_{hidden_2})$$        
+     */ 
     Collective<E> w_hidden_2; // Hidden layer weights: [d_model x d_model]
     Collective<E> b_hidden_2; // Hidden layer bias: [1 x d_model]
-
     /*
+        Layer 3.
+
         Output Layer
         ------------
+        $$Logits = \text{Activation}(Hidden_2 \cdot W_{output} + b_{output})$$  
     */
     Collective<E> w_output; // Output layer weights: [d_model x vocab_size]
     Collective<E> b_output; // Output layer bias: [1 x vocab_size]
@@ -36,33 +46,48 @@
         ------------------------------------
         Instead of updating the weights after every single sentence (batch size = 1), we can accumulate the gradients from multiple sentences (e.g., 16) and then update the weights once. This simulates a larger batch size without requiring more memory.
         Why this helps: With a batch size of 1, the model sees only one example at a time. If that example is an outlier or noisy, the model's weights can shift dramatically in the wrong direction. Accumulating gradients smooths out these updates, leading to more stable training and better generalization.
-        Implementation: We can add a counter to your train loop. For every sentence, we calculate the gradients but don't update the weights immediately. We add them to dLogits_dw and dLogits_db. Every 16 iterations, we perform the weight update and then reset the accumulators.        
-
-        // One set of accumulators per layer
+        Implementation: We can add a counter to your train loop. For every sentence, we calculate the gradients but don't update the weights immediately. We add them to dLogits_dw and dLogits_db. Every 16 iterations, we perform the weight update and then reset the accumulators.
      */
+    //* One set of accumulators per layer *//
+    Collective<E> dHidden_dw_1; // Gradient of hidden layer 1 with respect to weights. Accumulated gradient: d_Loss/d_w_hidden_1
+    Collective<E> dHidden_db_1; // Gradient of hidden layer 1 with respect to bias. Accumulated gradient: d_Loss/d_b_hidden_1
 
-    Collective<E> dHidden_dw_1; // Gradient of hidden layer with respect to weights
-    Collective<E> dHidden_db_1; // Gradient of hidden layer with respect to bias
+    //* One set of accumulators per layer *//
+    Collective<E> dHidden_dw_2; // Gradient of hidden layer 2 with respect to weights. Accumulated gradient: d_Loss/d_w_hidden_2
+    Collective<E> dHidden_db_2; // Gradient of hidden layer 2 with respect to bias. Accumulated gradient: d_Loss/d_b_hidden_2
 
-    Collective<E> dOutput_dw; // Gradient of output layer with respect to weights
-    Collective<E> dOutput_db; // Gradient of output layer with respect to bias
+    //* One set of accumulators per layer *//
+    Collective<E> dOutput_dw; // Gradient of output layer with respect to weights. Accumulated gradient: d_Loss/d_w_output
+    Collective<E> dOutput_db; // Gradient of output layer with respect to bias. Accumulated gradient: d_Loss/d_b_output
 
     /*
+        Forward pass cache. A.k.a. Backward pass Cache
+        ----------------------------------------------
+        EVERY intermediate result must be cached during forward pass
+        because backprop needs them to compute gradients via chain rule.
+        
+        Rule of thumb: 1 hidden layer = 2 cached tensors (raw + activated)
+        You have 2 hidden layers = 4 cached tensors needed.
+    
         When we calculate the gradients (Backpropagation), we need to know what the value of hidden was before and after the ReLU. 
         But inference only returns the final logits. If you only return the final logits, the training function has no "memory" of what happened inside the hidden layer.
 
         Inference: We only need the final result (Logits).
         Training: We need the intermediate results (Hidden Layer) to calculate the gradients.
 
-        By caching last_hidden_raw and last_hidden_activated as class members (this->), we successfully solved the "Training Trap"
+        By caching last_hidden_raw_1 and last_hidden_activated_1 as class members (this->), we successfully solved the "Training Trap"
         Now, when we transition to the train method, the model will "remember" exactly which neurons were fired during the forward pass,
         allowing the Chain Rule to work its magic.
      */
 
-    Collective<E> last_hidden_raw; // Z1 = Input * W_hidden_1 + b_hidden_1
-    Collective<E> last_hidden_activated; // H1 = ReLU(Z1)
+    Collective<E> last_hidden_raw_1; // Z1 = Input * W_hidden_1 + b_hidden_1
+    Collective<E> last_hidden_activated_1; // H1 = ReLU(Z1)
+
+    Collective<E> last_hidden_raw_2; // Z2 = H1 * W_hidden_2 + b_hidden_2
+    Collective<E> last_hidden_activated_2; // H2 = ReLU(Z2)
 
     Collective<E> forward_propagation(Collective<E>&) throw (ala_exception);
+    Collective<E> backward_propagation_old(Collective<E>&, Collective<E>&) throw (ala_exception);
     Collective<E> backward_propagation(Collective<E>&, Collective<E>&) throw (ala_exception);   
 
     public:
@@ -76,10 +101,15 @@
  };
 
  template <typename E = double, typename F = cc_tokenizer::string_character_traits<char>::int_type>
- MLM<E, F>::MLM() : w_hidden_1(), b_hidden_1(), w_output(), b_output(), dHidden_dw_1(), dHidden_db_1(), dOutput_dw(), dOutput_db(), gradient_accumulation_steps_counter(0)
- {
-    
- }
+ MLM<E, F>::MLM() : w_hidden_1(), b_hidden_1(), 
+                    w_hidden_2(), b_hidden_2(), 
+                    w_output(), b_output(), 
+                    dHidden_dw_1(), dHidden_db_1(),
+                    dHidden_dw_2(), dHidden_db_2(), 
+                    dOutput_dw(), dOutput_db(), 
+                    gradient_accumulation_steps_counter(0)
+{    
+}
 
  template <typename E = double, typename F = cc_tokenizer::string_character_traits<char>::int_type>
  MLM<E, F>::MLM(CORPUS& vocab, cc_tokenizer::string_character_traits<char>::size_type d_model)
@@ -98,11 +128,19 @@
         Xavier adjacent or xavier adjacent initialization: A widely used method in deep learning to initialize the weights of a neural network to prevent vanishing or exploding gradients. It is also known as Glorot initialization. 
      */
 
+    // Layer 1, weights and biases
     // [d_model x d_model]
     w_hidden_1 = Numcy::Random::randn_xavier<E>(DIMENSIONS{d_model /*Columns*/, d_model /*Rows*/, NULL, NULL}, false);
     // [1 x d_model]
     b_hidden_1 = Numcy::zeros<E>(DIMENSIONS{d_model /*Columns*/, 1 /*Rows*/, NULL, NULL});
 
+    // Layer 2, weights and biases
+    // [d_model x d_model]
+    w_hidden_2 = Numcy::Random::randn_xavier<E>(DIMENSIONS{d_model /*Columns*/, d_model /*Rows*/, NULL, NULL}, false);
+    // [1 x d_model]
+    b_hidden_2 = Numcy::zeros<E>(DIMENSIONS{d_model /*Columns*/, 1 /*Rows*/, NULL, NULL});
+
+    // Layer 3, weights and biases
     // [d_model x vocab_size]
     w_output = Numcy::Random::randn_xavier<E>(DIMENSIONS{vocab.numberOfUniqueTokens() /*Columns*/, d_model /*Rows*/, NULL, NULL}, false);
     // [1 x vocab_size]
@@ -118,6 +156,9 @@
     dHidden_dw_1 = Numcy::zeros<E>(w_hidden_1.getShape()); // Gradient of hidden layer with respect to weights
     dHidden_db_1 = Numcy::zeros<E>(b_hidden_1.getShape()); // Gradient of hidden layer with respect to bias
 
+    dHidden_dw_2 = Numcy::zeros<E>(w_hidden_2.getShape()); // Gradient of hidden layer with respect to weights
+    dHidden_db_2 = Numcy::zeros<E>(b_hidden_2.getShape()); // Gradient of hidden layer with respect to bias
+
     dOutput_dw = Numcy::zeros<E>(w_output.getShape()); // Gradient of output layer with respect to weights
     dOutput_db = Numcy::zeros<E>(b_output.getShape()); // Gradient of output layer with respect to bias
 
@@ -126,12 +167,117 @@
 
  template <typename E = double, typename F = cc_tokenizer::string_character_traits<char>::int_type>
  MLM<E, F>::~MLM()
- {
-    
+ {    
  }
 
-template <typename E = double, typename F = cc_tokenizer::string_character_traits<char>::int_type>
+ template <typename E = double, typename F = cc_tokenizer::string_character_traits<char>::int_type>
 Collective<E> MLM<E, F>::backward_propagation(Collective<E>& eo, /*The original input embedding [mntpl x d_model]*/ Collective<E>& dLogits /*The error from softmax/loss [mntpl x vocab_size]*/) throw (ala_exception) 
+{    
+    try
+    {
+        // =========================================================================================
+        // STEP 1: OUTPUT LAYER GRADIENTS
+        // dLogits [mntpl x vocab_size], this->last_hidden_activated_2 = ($$H_2$$) [mntpl x d_model]
+        // We need transpose of ($$H_2$$) to get ($$H_2^T$$) [d_model x mntpl]
+        // ==========================================================================================
+        Collective<E> h2_transposed = Numcy::transpose(this->last_hidden_activated_2);        
+        // Compute the gradient of the loss with respect to b_output.
+        // Chain rule: dL/db_output = dL/dLogits · dLogits/db_output
+        // Gradient: dL/db_output = sum(dLogits)
+        // Shape: [1 x vocab_size]
+        Collective<E> dLogits_sum = Numcy::sum(dLogits, AXIS_COLUMN);
+        // Compute the gradient of the loss with respect to W_output.
+        // Chain rule: dL/dW_output = dL/dLogits · dLogits/dW_output
+        // Gradient: dL/dW_output = $$H_{2}^{T}$$ · dLogits
+        // Shape: [d_model x mntpl] · [mntpl x vocab_size] = [d_model x vocab_size]
+        Collective<E> h2_transposed_dot_dLogits = Numcy::dot(h2_transposed, dLogits);
+        this->dOutput_dw = this->dOutput_dw + h2_transposed_dot_dLogits;
+        this->dOutput_db = this->dOutput_db + dLogits_sum;
+
+        // ================================================================
+        // STEP 2: PROPAGATE ERROR BACK THROUGH OUTPUT WEIGHTS
+        // ================================================================        
+        // dL/dH2 = dLogits · W_output $$^T$$ 
+        // dL/dH2 [mntpl x d_model]
+        // dLogits [mntpl x vocab_size], this->w_output [d_model x vocab_size], this->w_output $$^T$$ [vocab_size x d_model]
+        // [mntpl x vocab_size] * [vocab_size x d_model] = [mntpl x d_model]
+        Collective<E> w_output_transposed = Numcy::transpose(this->w_output);
+        Collective<E> dlogits_dot_w_output_transposed = Numcy::dot(dLogits, w_output_transposed);
+
+        // ===============================================
+        // STEP 3: LAYER 2 ReLU DERIVATIVE GATE 
+        // Gate gradient: only flows where Z2 was positive
+        // ===============================================
+        for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < dlogits_dot_w_output_transposed.getShape().getN(); i++)
+        {
+            if (this->last_hidden_raw_2[i] <= 0)
+            {
+                dlogits_dot_w_output_transposed[i] = 0;  // Neuron was OFF - kill gradient
+            }
+            // else: neuron was ON - gradient passes through unchanged  
+        }
+
+        // =======================================================
+        // STEP 4: LAYER 2 WEIGHT GRADIENTS (ReLU DERIVATIVE GATE)
+        // Gate gradient: only flows where Z2 was positive
+        // =======================================================
+        // this->last_hidden_activated_1 ($$h_1$$) [mntpl x d_model]
+        // ($$h_1^T$$) [d_model x mntpl]
+        Collective<E> h1_transposed = Numcy::transpose(this->last_hidden_activated_1);
+        // [d_model x mntpl] * [mntpl x d_model] = [d_model x d_model]
+        Collective<E> h1_transposed_dot_dlogits_dot_w_output_transposed = Numcy::dot(h1_transposed, dlogits_dot_w_output_transposed);
+        // Gradient of the loss with respect to b_output.
+        // Chain rule: dL/db_output = dL/dLogits · dLogits/db_output
+        // Gradient: dL/db_output = sum(dLogits)
+        // [1 x d_model]
+        Collective<E> dlogits_dot_w_output_transposed_sum = Numcy::sum(dlogits_dot_w_output_transposed, AXIS_COLUMN);
+        this->dHidden_dw_2 = this->dHidden_dw_2 + h1_transposed_dot_dlogits_dot_w_output_transposed;
+        this->dHidden_db_2 = this->dHidden_db_2 + dlogits_dot_w_output_transposed_sum;
+        
+        // ================================================================
+        // STEP 5: PROPAGATE ERROR BACK THROUGH HIDDEN_2 WEIGHTS 
+        // ================================================================
+        // [d_model x d_model] $$^T$$ = [d_model x d_model]
+        Collective<E> w_hidden_2_transposed = Numcy::transpose(this->w_hidden_2);
+        // dlogits_dot_w_output_transposed [mntpl x d_model]
+        // w_hidden_2_transposed [d_model x d_model]
+        // [mntpl x d_model] * [d_model x d_model] = [mntpl x d_model]
+        Collective<E> dlogits_dot_w_output_transposed_dot_w_hidden_2_transposed = Numcy::dot(dlogits_dot_w_output_transposed, w_hidden_2_transposed);
+
+        // ================================================================
+        // STEP 6: LAYER 1 ReLU DERIVATIVE GATE
+        // Same logic as before, now uses Z1 cache
+        // ================================================================
+        for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < dlogits_dot_w_output_transposed_dot_w_hidden_2_transposed.getShape().getN(); i++)
+        {
+            if (this->last_hidden_raw_1[i] <= 0)
+            {
+                dlogits_dot_w_output_transposed_dot_w_hidden_2_transposed[i] = 0;  // Neuron was OFF - kill gradient
+            }
+            // else: neuron was ON - gradient passes through unchanged
+        }
+
+        // ================================================================
+        // STEP 7: LAYER 1 WEIGHT GRADIENTS
+        // Same as before, but using dH1 instead of dH2
+        // ================================================================
+        Collective<E> eo_transposed = Numcy::transpose(eo);
+        Collective<E> eo_transpose_dot_dlogits_dot_w_output_transposed_dot_w_hidden_2_transposed = Numcy::dot(eo_transposed, dlogits_dot_w_output_transposed_dot_w_hidden_2_transposed);
+        Collective<E> dlogits_dot_w_output_transposed_dot_w_hidden_2_transposed_sum = Numcy::sum(dlogits_dot_w_output_transposed_dot_w_hidden_2_transposed, AXIS_COLUMN);
+        this->dHidden_dw_1 = this->dHidden_dw_1 + eo_transpose_dot_dlogits_dot_w_output_transposed_dot_w_hidden_2_transposed;
+        this->dHidden_db_1 = this->dHidden_db_1 + dlogits_dot_w_output_transposed_dot_w_hidden_2_transposed_sum;                
+    }
+    catch (const std::exception& e)
+    {
+        cc_tokenizer::String<char> message = cc_tokenizer::String<char>("MLM::backward_propagation(Collective<E>&, Collective<E>&) -> ") + cc_tokenizer::String<char>(e.what());
+        throw ala_exception(message); 
+    }
+
+   return Collective<E>{NULL, DIMENSIONS{0, 0, NULL, NULL}}; 
+}
+
+template <typename E = double, typename F = cc_tokenizer::string_character_traits<char>::int_type>
+Collective<E> MLM<E, F>::backward_propagation_old(Collective<E>& eo, /*The original input embedding [mntpl x d_model]*/ Collective<E>& dLogits /*The error from softmax/loss [mntpl x vocab_size]*/) throw (ala_exception) 
 {
     Collective<E> h1_transposed;
     Collective<E> h1_transposed_dot_dLogits;
@@ -144,13 +290,13 @@ Collective<E> MLM<E, F>::backward_propagation(Collective<E>& eo, /*The original 
 
     try
     {
-        //std::cout<< "last_hidden_activated = " << this->last_hidden_activated.getShape().getNumberOfRows() << ", " << this->last_hidden_activated.getShape().getNumberOfColumns() << std::endl;
+        //std::cout<< "last_hidden_activated_1 = " << this->last_hidden_activated_1.getShape().getNumberOfRows() << ", " << this->last_hidden_activated_1.getShape().getNumberOfColumns() << std::endl;
         //std::cout<< "dLogits = " << dLogits.getShape().getNumberOfRows() << ", " << dLogits.getShape().getNumberOfColumns() << std::endl;
 
         // --- STEP 1: OUTPUT LAYER GRADIENTS ---
-        // dLogits [mntpl x vocab_size], this->last_hidden_activated = ($$h_1$$) [mntpl x d_model]
+        // dLogits [mntpl x vocab_size], this->last_hidden_activated_1 = ($$h_1$$) [mntpl x d_model]
         // We need transpose of ($$h_1$$) to get ($$h_1^T$$) [d_model x mntpl]
-        h1_transposed = Numcy::transpose(this->last_hidden_activated);
+        h1_transposed = Numcy::transpose(this->last_hidden_activated_1);
         //std::cout<< "h1_transposed = " << h1_transposed.getShape().getNumberOfRows() << ", " << h1_transposed.getShape().getNumberOfColumns() << std::endl;
         // We calculate how the weights between Hidden and Output should change
         // [d_model x vocab_size]
@@ -179,14 +325,14 @@ Collective<E> MLM<E, F>::backward_propagation(Collective<E>& eo, /*The original 
 
         // --- STEP 3: APPLY ReLU DERIVATIVE ---
         // The gradient only flows through neurons that were "ON" ( > 0 )
-        // We use 'last_hidden_raw' (Z1) to check the state.
+        // We use 'last_hidden_raw_1' (Z1) to check the state.
         /*
-            When last_hidden_raw[i] <= 0: The ReLU derivative is 0, so you zero out the gradient.
-            When last_hidden_raw[i] > 0: The ReLU derivative is 1, so you keep the gradient (implicit multiplication by 1).
+            When last_hidden_raw_1[i] <= 0: The ReLU derivative is 0, so you zero out the gradient.
+            When last_hidden_raw_1[i] > 0: The ReLU derivative is 1, so you keep the gradient (implicit multiplication by 1).
          */
         for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < dLogits_dot_w_output_transposed.getShape().getN(); i++)
         {
-            if (this->last_hidden_raw[i] <= 0)
+            if (this->last_hidden_raw_1[i] <= 0)
             {
                 dLogits_dot_w_output_transposed[i] = 0;
             }
@@ -221,31 +367,31 @@ Collective<E> MLM<E, F>::backward_propagation(Collective<E>& eo, /*The original 
  * To support deep learning, we separate the "Logic" from the "Interface":
  * * 1. forward_pass(): The internal engine. It computes the hidden representation, 
  * applies the non-linear ReLU activation, and caches intermediate states 
- * (Z1 and H1) required for the Chain Rule during training.
+ * (Zn and Hn) required for the Chain Rule during training (backpropagation).
  * * 2. infer(): The public wrapper. It provides a clean entry point for making 
  * predictions, abstracting away the internal caching and providing error 
  * handling for the higher-level application logic.
  * * Dimensions Flow:
- * [Input: mntpl x d_model] -> [Hidden: mntpl x d_model] -> [Output: mntpl x vocab_size]
+ * $$[Input: mntpl x d_{model}] -> [Hidden: mntpl x d_{model}]_{n} -> [Output: mntpl x vocab_{size}]$$
  * ======================================================================================
  */
 
 /**
- * @brief Performs the Forward Propagation pass through a 2-layer Neural Network.
- * * This method transforms raw input embeddings into class logits by passing them through 
+ * @brief Performs the Forward Propagation pass through a n-layer Neural Network.
+ * This method transforms raw input embeddings into class logits by passing them through 
  * a hidden representation space. It implements the standard Deep Learning "bottleneck" 
  * architecture, which allows the model to learn complex, non-linear relationships 
  * between medical symptoms that a simple linear model cannot capture.
  *
  * @section Math_Logic Mathematical Transformation:
- * 1. Hidden Layer Projection: Z1 = (eo * W_hidden_1) + b_hidden_1
- * 2. Activation Function:    H1 = ReLU(Z1)  <-- Introduces non-linearity/sparsity
- * 3. Output Layer Projection: Z2 = (H1 * W_output) + b_output
+ * 1. Hidden Layer Projection: Zn = (input * W_hidden_n) + b_hidden_n
+ * 2. Activation Function:    Hn = ReLU(Zn)  <-- Introduces non-linearity/sparsity
+ * 3. Output Layer Projection: Z_output = (Hn * W_output) + b_output
  *
  * @section Cache_Mechanism Gradient Cache:
- * During this pass, 'last_hidden_raw' (Z1) and 'last_hidden_activated' (H1) are 
+ * During this pass, 'last_hidden_raw_n' (Zn) and 'last_hidden_activated_n' (Hn) are 
  * cached as class members. This is critical for Backpropagation, as the ReLU 
- * derivative requires Z1, and the Output Layer weight update requires H1.
+ * derivative requires Zn, and the Output Layer weight update requires Hn.
  *
  * @tparam E Data type for floating point calculations (double/float).
  * @tparam F Data type for vocabulary indices.
@@ -256,7 +402,7 @@ Collective<E> MLM<E, F>::backward_propagation(Collective<E>& eo, /*The original 
 template <typename E = double, typename F = cc_tokenizer::string_character_traits<char>::int_type>
 Collective<E> MLM<E, F>::forward_propagation(Collective<E>& eo) throw (ala_exception) 
 {
-        /*
+    /*
         Input Embedding (eo)
         --------------------
         The input `eo` is a matrix of shape `[mntpl, d_model]`.
@@ -292,15 +438,28 @@ Collective<E> MLM<E, F>::forward_propagation(Collective<E>& eo) throw (ala_excep
     /*
         Forward Propagation/Pass (Inference)
         ------------------------------------
-        Linear Projection: For every token in the sequence, calculate: eo[i] x w_hidden_1 + b_hidden_1  
+        Linear Projection: For every token in the sequence, calculate: input[i] x w_hidden_1 + b_hidden_1  
      */
-    // 1. INPUT TO HIDDEN TRANSFORMATION
+
+    // Layer 1. Input to hidden transformation
+    // ---------------------------------------
     // [mntpl x d_model] * [d_model x d_model] = [mntpl x d_model]
-    this->last_hidden_raw = Numcy::dot(eo, w_hidden_1); // $$Z_1 = eo \cdot W_{hidden_1}$$
+    this->last_hidden_raw_1 = Numcy::dot(eo, this->w_hidden_1); // $$Z_{1} = input \cdot w_{hidden_1}$$
     // [mntpl x d_model] + [1 x d_model] = [mntpl x d_model]
-    this->last_hidden_raw = this->last_hidden_raw + this->b_hidden_1; // $$Z_1 = Z_1 + b_{hidden_1}$$
+    this->last_hidden_raw_1 = this->last_hidden_raw_1 + this->b_hidden_1; // $$Z_{1} = Z_{1} + b_{hidden_1}$$
+    // [mntpl x d_model]  
+    this->last_hidden_activated_1 = Numcy::ReLU(this->last_hidden_raw_1); // $$H_{1} = \text{ReLU}(Z_{1})$$
+
+    // Layer 2. Hidden to hidden transformation
+    // ----------------------------------------
+    // [mntpl x d_model] * [d_model x d_model] = [mntpl x d_model]
+    this->last_hidden_raw_2 = Numcy::dot(this->last_hidden_activated_1, this->w_hidden_2); // $$Z_{2} = H_{1} \cdot w_{hidden_2}$$
+    // [mntpl x d_model] + [1 x d_model] = [mntpl x d_model]
+    this->last_hidden_raw_2 = this->last_hidden_raw_2 + this->b_hidden_2; // $$Z_{2} = Z_{2} + b_{hidden_2}$$
+    // [mntpl x d_model]  
+    this->last_hidden_activated_2 = Numcy::ReLU(this->last_hidden_raw_2); // $$H_{2} = \text{ReLU}(Z_{2})$$    
     
-    // 2. ACTIVATION (Hidden to Hidden, Non-Linearity)
+    // ACTIVATION (Hidden to Hidden, Non-Linearity)
     /*
         Why we need the ReLU?
         ---------------------
@@ -321,19 +480,18 @@ Collective<E> MLM<E, F>::forward_propagation(Collective<E>& eo) throw (ala_excep
         With ReLU ($max(0, x)$), the neuron stays at 0 (completely silent) unless the input signals are strong enough.
         This creates Sparsity, which is how BERT manages to be so smart.
      */
-    // [mntpl x d_model]    
-    this->last_hidden_activated = Numcy::ReLU(this->last_hidden_raw); // $$H_1 = \text{ReLU}(Z_1)$$
-
-    // 3. HIDDEN TO OUTPUT TRANSFORMATION (Final Linear Projection)
+ 
+    // Layer 3. Hidden to output transformation (final linear projection)
+    // ------------------------------------------------------------------
     /*
         Output Layer
         ------------
         Linear Projection: For every token in the sequence, calculate: hidden[i] x w_output + b_output  
     */
     // [mntpl x d_model] * [d_model x vocab_size] = [mntpl x vocab_size]
-    Collective<E> logits = Numcy::dot(this->last_hidden_activated, w_output); // $$Z_2 = H_1 \cdot W_{output}$$
+    Collective<E> logits = Numcy::dot(this->last_hidden_activated_2, this->w_output); // $$Z_{3} = H_{2} \cdot w_{output}$$
     // [mntpl x vocab_size] + [1 x vocab_size] = [mntpl x vocab_size]
-    logits = logits + b_output; // $$Z_2 = Z_2 + b_{output}$$
+    logits = logits + this->b_output; // $$Z_{3} = Z_{3} + b_{output}$$
     
     // [mntpl x vocab_size] . Inference: We only need the final result (Logits).
     return logits; // Pass by value, not by reference
@@ -408,7 +566,7 @@ E MLM<E, F>::train(Collective<F>& original, Collective<F>& input, Collective<F>&
     try 
     {
         // 1. FORWARD PASS
-        // This fills last_hidden_raw and last_hidden_activated caches
+        // This fills last_hidden_raw_1 and last_hidden_activated_1 caches
         logits = forward_propagation(eo);
 
         //std::cout<< "logits = " << logits.getShape().getNumberOfRows() << ", " << logits.getShape().getNumberOfColumns() << std::endl;
@@ -503,13 +661,16 @@ E MLM<E, F>::train(Collective<F>& original, Collective<F>& input, Collective<F>&
             // We divide by GRADIENT_ACCUMULATION_STEPS to average them out.
             this->dOutput_dw = this->dOutput_dw * scale;
             this->dOutput_db = this->dOutput_db * scale;
+            this->dHidden_dw_2 = this->dHidden_dw_2 * scale;  // NEW
+            this->dHidden_db_2 = this->dHidden_db_2 * scale;  // NEW
             this->dHidden_dw_1 = this->dHidden_dw_1 * scale;
             this->dHidden_db_1 = this->dHidden_db_1 * scale;
 
             // Update Output Layer: W = W - (LR * dW)
             this->w_output = this->w_output - (this->dOutput_dw * learning_rate);
             this->b_output = this->b_output - (this->dOutput_db * learning_rate);
-
+            this->w_hidden_2 = this->w_hidden_2 - (this->dHidden_dw_2 * learning_rate);  // NEW
+            this->b_hidden_2 = this->b_hidden_2 - (this->dHidden_db_2 * learning_rate);  // NEW
             // Update Hidden Layer: W = W - (LR * dW)
             this->w_hidden_1 = this->w_hidden_1 - (this->dHidden_dw_1 * learning_rate);
             this->b_hidden_1 = this->b_hidden_1 - (this->dHidden_db_1 * learning_rate);
@@ -519,6 +680,8 @@ E MLM<E, F>::train(Collective<F>& original, Collective<F>& input, Collective<F>&
             // RESET ACCUMULATORS
             this->dOutput_dw = Numcy::zeros<E>(this->w_output.getShape());
             this->dOutput_db = Numcy::zeros<E>(this->b_output.getShape());
+            this->dHidden_dw_2 = Numcy::zeros<E>(this->w_hidden_2.getShape());  // NEW
+            this->dHidden_db_2 = Numcy::zeros<E>(this->b_hidden_2.getShape());  // NEW
             this->dHidden_dw_1 = Numcy::zeros<E>(this->w_hidden_1.getShape());
             this->dHidden_db_1 = Numcy::zeros<E>(this->b_hidden_1.getShape());
         }

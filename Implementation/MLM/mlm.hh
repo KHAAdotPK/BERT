@@ -80,11 +80,13 @@
         allowing the Chain Rule to work its magic.
      */
 
-    Collective<E> last_hidden_raw_1; // Z1 = Input * W_hidden_1 + b_hidden_1
-    Collective<E> last_hidden_activated_1; // H1 = ReLU(Z1)
+    // Forward Pass Layer 1 Output Cached For Backward Pass
+    Collective<E> last_hidden_raw_1; // Z1 = Input * W_hidden_1 + b_hidden_1 , [mntpl x d_model] * [d_model x d_model] = [mntpl x d_model], [mntpl x d_model] + [1 x d_model] = [mntpl x d_model]                     
+    Collective<E> last_hidden_activated_1; // H1 = ReLU(Z1) , (linear transformation) [mntpl x d_model]
 
-    Collective<E> last_hidden_raw_2; // Z2 = H1 * W_hidden_2 + b_hidden_2
-    Collective<E> last_hidden_activated_2; // H2 = ReLU(Z2)
+    // Forward Pass Layer 2 Output Cached for Backward Pass 
+    Collective<E> last_hidden_raw_2; // Z2 = H1 * W_hidden_2 + b_hidden_2 , [mntpl x d_model] * [d_model x d_model] = [mntpl x d_model] , [mntpl x d_model] + [1 x d_model] = [mntpl x d_model]
+    Collective<E> last_hidden_activated_2; // H2 = ReLU(Z2) , (linear transformation) [mntpl x d_model]
 
     Collective<E> forward_propagation(Collective<E>&) throw (ala_exception);
     Collective<E> backward_propagation_old(Collective<E>&, Collective<E>&) throw (ala_exception);
@@ -170,14 +172,15 @@
  {    
  }
 
- template <typename E = double, typename F = cc_tokenizer::string_character_traits<char>::int_type>
+// Forward pass is done, now we need to backpropagate/compute the error/gradient through all n layers.
+template <typename E = double, typename F = cc_tokenizer::string_character_traits<char>::int_type>
 Collective<E> MLM<E, F>::backward_propagation(Collective<E>& eo, /*The original input embedding [mntpl x d_model]*/ Collective<E>& dLogits /*The error from softmax/loss [mntpl x vocab_size]*/) throw (ala_exception) 
 {    
     try
     {
         // =========================================================================================
         // STEP 1: OUTPUT LAYER GRADIENTS
-        // dLogits [mntpl x vocab_size], this->last_hidden_activated_2 = ($$H_2$$) [mntpl x d_model]
+        // dLogits [mntpl x vocab_size], this->last_hidden_activated_2 is ($$H_2$$) [mntpl x d_model]
         // We need transpose of ($$H_2$$) to get ($$H_2^T$$) [d_model x mntpl]
         // ==========================================================================================
         Collective<E> h2_transposed = Numcy::transpose(this->last_hidden_activated_2);        
@@ -486,9 +489,11 @@ Collective<E> MLM<E, F>::forward_propagation(Collective<E>& eo) throw (ala_excep
     /*
         Output Layer
         ------------
-        Linear Projection: For every token in the sequence, calculate: hidden[i] x w_output + b_output  
+        Linear Projection: For every token in the sequence, calculate: hidden[i,j] x w_output[j,i] + b_output[j]  
     */
     // [mntpl x d_model] * [d_model x vocab_size] = [mntpl x vocab_size]
+    // Each of the (mntpl many) tokens now has (vocab_size many) scores (one per word in vocab).
+    // Softmax will turn these into probabilities during training and inference (mlm::train(), mlm::infer())
     Collective<E> logits = Numcy::dot(this->last_hidden_activated_2, this->w_output); // $$Z_{3} = H_{2} \cdot w_{output}$$
     // [mntpl x vocab_size] + [1 x vocab_size] = [mntpl x vocab_size]
     logits = logits + this->b_output; // $$Z_{3} = Z_{3} + b_{output}$$

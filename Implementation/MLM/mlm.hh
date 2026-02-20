@@ -179,21 +179,20 @@ Collective<E> MLM<E, F>::backward_propagation(Collective<E>& eo, /*The original 
     try
     {
         // =========================================================================================
-        // STEP 1: OUTPUT LAYER GRADIENTS
+        // STEP 1: UPDATE OUTPUT LAYER GRADIENTS WITH RESPECT TO WEIGHTS (dOutput_dw) AND BIASES (dOutput_db)
         // dLogits [mntpl x vocab_size], this->last_hidden_activated_2 is ($$H_2$$) [mntpl x d_model]
         // We need transpose of ($$H_2$$) to get ($$H_2^T$$) [d_model x mntpl]
         // ==========================================================================================
-        Collective<E> h2_transposed = Numcy::transpose(this->last_hidden_activated_2);        
-        // Compute the gradient of the loss with respect to b_output.
-        // Chain rule: dL/db_output = dL/dLogits · dLogits/db_output
-        // Gradient: dL/db_output = sum(dLogits)
-        // Shape: [1 x vocab_size]
-        Collective<E> dLogits_sum = Numcy::sum(dLogits, AXIS_COLUMN);
-        // Compute the gradient of the loss with respect to W_output.
-        // Chain rule: dL/dW_output = dL/dLogits · dLogits/dW_output
-        // Gradient: dL/dW_output = $$H_{2}^{T}$$ · dLogits
-        // Shape: [d_model x mntpl] · [mntpl x vocab_size] = [d_model x vocab_size]
-        Collective<E> h2_transposed_dot_dLogits = Numcy::dot(h2_transposed, dLogits);
+        // Chain rule: dL/dW_output = dL/dLogits · dLogits/dW_output to get the gradient of the loss with respect to the output layer weights.
+        // Gradient:   dL/dW_output = $$H_{2}^{T}$$ · dLogits
+        // Chain rule: dL/db_output = dL/dLogits · dLogits/db_output to get the gradient of the loss with respect to the output layer biases.
+        // Gradient:   dL/db_output = sum(dLogits)
+        // [mntpl x d_model] -> [d_model x mntpl] 
+        Collective<E> h2_transposed = Numcy::transpose(this->last_hidden_activated_2);
+        // [d_model x mntpl] · [mntpl x vocab_size] = [d_model x vocab_size]         
+        Collective<E> h2_transposed_dot_dLogits = Numcy::dot(h2_transposed, dLogits); // Gradient: dL/dW_output = $$H_{2}^{T}$$ · dLogits           
+        // [mntpl x vocab_size] -> [1 x vocab_size]
+        Collective<E> dLogits_sum = Numcy::sum(dLogits, AXIS_COLUMN); // Gradient: dL/db_output = sum(dLogits)        
         this->dOutput_dw = this->dOutput_dw + h2_transposed_dot_dLogits;
         this->dOutput_db = this->dOutput_db + dLogits_sum;
 

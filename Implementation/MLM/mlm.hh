@@ -242,9 +242,7 @@ Collective<E> MLM<E, F>::backward_propagation(Collective<E>& eo, /*The original 
         //      In the forward pass (Layer 2), we computed:
         //          $$Z_{2}$$ = $$H_{1}$$ · W_hidden_2 + b_hidden_2  (linear transformation a.k.a pre-activation values) 
         //          $$H_{2}$$ = ReLU($$Z_{2}$$)                      (post-activation values)
-        //          In Step 2, we computed ∂L/∂H₂ (error signal from output layer).
-        //              Chain Rule: dL/dH2 = dL/dZ2 · dZ2/dH2
-        //              Gradient:   dL/dH2 = dLogits · $$(W_output)^T$$ 
+        //
         // Now we compute gradients for W_hidden_2 and b_hidden_2.
         // --- Weight Gradient ---
         // Chain rule: ∂L/∂W_hidden_2 = ∂L/∂Z₂ · ∂Z₂/∂W_hidden_2
@@ -258,7 +256,7 @@ Collective<E> MLM<E, F>::backward_propagation(Collective<E>& eo, /*The original 
             `∂L/∂Z₂` is known (this is `dH2` after ReLU gating) — shape: `[mntpl × d_model]`
          */
         // --- Bias Gradient ---
-        // Full chain rule: ∂L/∂b_hidden_2 = ∂L/∂Z₂ · ∂Z₂/∂b_hidden_2
+        // Chain rule: ∂L/∂b_hidden_2 = ∂L/∂Z₂ · ∂Z₂/∂b_hidden_2
         // Gradient: ∂L/∂b_hidden_2 = sum(∂L/∂Z₂, axis=columns)
         // From Z₂ = H₁ · W_hidden_2 + b_hidden_2
         // Why sum? Because each element of $$b_hidden_2$$ is added to all elements in its column in $$Z_2$$.
@@ -272,43 +270,64 @@ Collective<E> MLM<E, F>::backward_propagation(Collective<E>& eo, /*The original 
         //   dH2 (gated): [mntpl x d_model]
         //   Result:      [d_model x d_model]
         Collective<E> h1_transposed = Numcy::transpose(this->last_hidden_activated_1);
-        Collective<E> h1_transposed_dot_dH2 = Numcy::dot(h1_transposed, dH2);
-        Collective<E> dH2_sum = Numcy::sum(dH2, AXIS_COLUMN);
-        this->dHidden_dw_2 = this->dHidden_dw_2 + h1_transposed_dot_dH2;
-        this->dHidden_db_2 = this->dHidden_db_2 + dH2_sum;
-        
+        Collective<E> /*h1_transposed_dot_dH2*/ dW_hidden_2 = Numcy::dot(h1_transposed, dH2);
+        Collective<E> /*dH2_sum*/ db_hidden_2 = Numcy::sum(dH2, AXIS_COLUMN);
+        this->dHidden_dw_2 = this->dHidden_dw_2 + /*h1_transposed_dot_dH2*/ dW_hidden_2;
+        this->dHidden_db_2 = this->dHidden_db_2 + /*dH2_sum*/ db_hidden_2;
+
         // ================================================================
         // STEP 5: PROPAGATE ERROR BACK THROUGH HIDDEN_2 WEIGHTS 
         // ================================================================
-        // [d_model x d_model] $$^T$$ = [d_model x d_model]
+        // Forward operation: Z₂ = H₁ · W_hidden_2
+        // 
+        // Backprop rule for matrix multiplication Y = X · W:
+        //   ∂L/∂X = ∂L/∂Y · W^T   (chain rule, NOT algebraic inverse)
+        // Applying to our case:
+        //   ∂L/∂H₁ = ∂L/∂Z₂ · W_hidden_2^T
+        //
+        // Dimensions: [mntpl × d_model] · [d_model × d_model] = [mntpl × d_model]        
         Collective<E> w_hidden_2_transposed = Numcy::transpose(this->w_hidden_2);
         // dH2 [mntpl x d_model]
         // w_hidden_2_transposed [d_model x d_model]
         // [mntpl x d_model] * [d_model x d_model] = [mntpl x d_model]
-        Collective<E> dH2_dot_w_hidden_2_transposed = Numcy::dot(dH2, w_hidden_2_transposed);
+        Collective<E> /*dH2_dot_w_hidden_2_transposed*/ dH1 = Numcy::dot(dH2, w_hidden_2_transposed);
 
         // ================================================================
         // STEP 6: LAYER 1 ReLU DERIVATIVE GATE
         // Same logic as before, now uses Z1 cache
         // ================================================================
-        for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < dH2_dot_w_hidden_2_transposed.getShape().getN(); i++)
+        /*for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < dH2_dot_w_hidden_2_transposed.getShape().getN(); i++)
         {
             if (this->last_hidden_raw_1[i] <= 0)
             {
                 dH2_dot_w_hidden_2_transposed[i] = 0;  // Neuron was OFF - kill gradient
             }
             // else: neuron was ON - gradient passes through unchanged
-        }
+        }*/
+        /*dH2_dot_w_hidden_2_transposed*/ dH1 = Numcy::ReLU_Derivative(/*dH2_dot_w_hidden_2_transposed*/ dH1, this->last_hidden_raw_1);
 
         // ================================================================
-        // STEP 7: LAYER 1 WEIGHT GRADIENTS
-        // Same as before, but using dH1 instead of dH2
+        // STEP 7: COMPUTE LAYER 1 WEIGHT AND BIAS GRADIENTS
+        // Same as Step 4, but using dH1 instead of dH2
         // ================================================================
+        // At this point, dH1 has been gated by ReLU' (Step 6), so it contains ∂L/∂Z₁.
+        //
+        // Weight gradient: ∂L/∂W_hidden_1 = eoᵀ · ∂L/∂Z₁
+        // Bias gradient:   ∂L/∂b_hidden_1 = sum(∂L/∂Z₁, axis=rows)
+        //
+        // Dimensions:
+        //   eo:          [mntpl × d_model]
+        //   eoᵀ:         [d_model × mntpl]
+        //   ∂L/∂Z₁ (dH1): [mntpl × d_model]
+        //   Result:      [d_model × d_model]
         Collective<E> eo_transposed = Numcy::transpose(eo);
-        Collective<E> eo_transpose_dot_dH2_dot_w_hidden_2_transposed = Numcy::dot(eo_transposed, dH2_dot_w_hidden_2_transposed);
-        Collective<E> dH2_dot_w_hidden_2_transposed_sum = Numcy::sum(dH2_dot_w_hidden_2_transposed, AXIS_COLUMN);
-        this->dHidden_dw_1 = this->dHidden_dw_1 + eo_transpose_dot_dH2_dot_w_hidden_2_transposed;
-        this->dHidden_db_1 = this->dHidden_db_1 + dH2_dot_w_hidden_2_transposed_sum;                
+        // Weight gradient: [d_model × mntpl] · [mntpl × d_model] = [d_model × d_model]
+        Collective<E> /*eo_transpose_dot_dH2_dot_w_hidden_2_transposed*/ dW_hidden_1 = Numcy::dot(eo_transposed, /*dH2_dot_w_hidden_2_transposed*/ dH1);
+        // Bias gradient: [mntpl × d_model] → [1 × d_model]
+        Collective<E> /*dH2_dot_w_hidden_2_transposed_sum*/ db_hidden_1 = Numcy::sum(/*dH2_dot_w_hidden_2_transposed*/ dH1, AXIS_COLUMN);
+        // Accumulate gradients
+        this->dHidden_dw_1 = this->dHidden_dw_1 + /*eo_transpose_dot_dH2_dot_w_hidden_2_transposed*/ dW_hidden_1;
+        this->dHidden_db_1 = this->dHidden_db_1 + /*dH2_dot_w_hidden_2_transposed_sum*/ db_hidden_1;                
     }
     catch (const std::exception& e)
     {
@@ -316,7 +335,7 @@ Collective<E> MLM<E, F>::backward_propagation(Collective<E>& eo, /*The original 
         throw ala_exception(message); 
     }
 
-   return Collective<E>{NULL, DIMENSIONS{0, 0, NULL, NULL}}; 
+    return Collective<E>{NULL, DIMENSIONS{0, 0, NULL, NULL}}; 
 }
 
 template <typename E = double, typename F = cc_tokenizer::string_character_traits<char>::int_type>

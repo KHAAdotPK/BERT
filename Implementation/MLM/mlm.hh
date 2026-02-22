@@ -120,6 +120,13 @@
     // ----------------------------------------------------
 
     /*
+        Why different seed for all three weight matrices?
+        -------------------------------------------------
+        Becuase the implementation seeds a global RNG (Random Number Generator) state at each call that is why three independent RNGs are constructed using three different seeds.
+        If we wouldhave used same seed for all three weight matrices then all three weight matrices would have been same. This is the symmetry-breaking problem — all layers will compute identical gradients and learn nothing different from each other.
+     */
+
+    /*
         In a Neural Network, the range of your initial weights is critical.
         If they are too large, your gradients will explode; if they are too small, the model will never learn (vanishing gradients).
 
@@ -138,13 +145,13 @@
 
     // Layer 2, weights and biases
     // [d_model x d_model]
-    w_hidden_2 = Numcy::Random::randn_xavier<E>(DIMENSIONS{d_model /*Columns*/, d_model /*Rows*/, NULL, NULL}, 42, false);
+    w_hidden_2 = Numcy::Random::randn_xavier<E>(DIMENSIONS{d_model /*Columns*/, d_model /*Rows*/, NULL, NULL}, 43, false);
     // [1 x d_model]
     b_hidden_2 = Numcy::zeros<E>(DIMENSIONS{d_model /*Columns*/, 1 /*Rows*/, NULL, NULL});
 
     // Layer 3, weights and biases
     // [d_model x vocab_size]
-    w_output = Numcy::Random::randn_xavier<E>(DIMENSIONS{vocab.numberOfUniqueTokens() /*Columns*/, d_model /*Rows*/, NULL, NULL}, 42, false);
+    w_output = Numcy::Random::randn_xavier<E>(DIMENSIONS{vocab.numberOfUniqueTokens() /*Columns*/, d_model /*Rows*/, NULL, NULL}, 44, false);
     // [1 x vocab_size]
     b_output = Numcy::zeros<E>(DIMENSIONS{vocab.numberOfUniqueTokens() /*Columns*/, 1 /*Rows*/, NULL, NULL});
 
@@ -338,6 +345,11 @@ Collective<E> MLM<E, F>::backward_propagation(Collective<E>& eo, /*The original 
     return Collective<E>{NULL, DIMENSIONS{0, 0, NULL, NULL}}; 
 }
 
+/*
+    [[deprecated]]
+    The backward_propagation_old function still exists and accumulates into the same accumulators as backward_propagation.
+    It is only here for reference and testing purposes. 
+ */
 template <typename E = double, typename F = cc_tokenizer::string_character_traits<char>::int_type>
 Collective<E> MLM<E, F>::backward_propagation_old(Collective<E>& eo, /*The original input embedding [mntpl x d_model]*/ Collective<E>& dLogits /*The error from softmax/loss [mntpl x vocab_size]*/) throw (ala_exception) 
 {
@@ -621,7 +633,7 @@ E MLM<E, F>::train(Collective<F>& original, Collective<F>& input, Collective<F>&
     Collective<E> dLogits;
     F idx = 0;
 
-    E loss = 0;
+    E loss = 0; // Loss of this training session, it gets added to the total loss over all epochs x numbr of training sessions/steps 
     cc_tokenizer::string_character_traits<char>::size_type mask_count = 0; // Initialize mask count to zero
 
     // 0. ACCUMULATE GRADIENTS (Summing up gradients from mini-batches)
@@ -639,9 +651,21 @@ E MLM<E, F>::train(Collective<F>& original, Collective<F>& input, Collective<F>&
         // dLogits = Probabilities - Targets
         // Numcy::softmax handles the probability distribution
 
-        dLogits = Numcy::zeros<E>(logits.getShape()); 
+        dLogits = Numcy::zeros<E>(logits.getShape());  // Initialize dLogits to zeros
 
-        for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < label.getShape().getN() && label[i] != INDEX_NOT_FOUND_AT_VALUE; i++)
+        /*
+            We iterate through the label array and calculate the gradient for each token.
+
+            We skip padding tokens (label[i] == INDEX_NOT_FOUND_AT_VALUE) because they don't have a corresponding token in the input sequence.
+            These pading tokens are all at the end of the label array. 
+            
+            The problem is that backward_propagation receives the full dLogits matrix including those zero rows.
+            This means the weight gradient computation (H2ᵀ · dLogits) includes those zero rows in the matrix multiply,
+            which is mathematically harmless but wasteful. More importantly,
+            if there's a bug where zeros aren't truly zero (e.g. from a Numcy implementation detail),
+            you'd get silent gradient corruption. 
+         */
+        for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < label.getShape().getN() && label[i] != INDEX_NOT_FOUND_AT_VALUE /*Skip padding tokens*/;  i++)
         {    
             logits_row = logits.slice(i*logits.getShape().getNumberOfColumns(), DIMENSIONS{logits.getShape().getNumberOfColumns() /*Columns*/, 1 /*Rows*/, NULL, NULL});
             /*

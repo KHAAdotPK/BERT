@@ -61,8 +61,9 @@ int main(int argc, char* argv[])
         default_epochs = atoi(argv[arg_epochs.i + 1]);
     }
 
-    double loss = 0.0;
-    cc_tokenizer::string_character_traits<char>::size_type counter = 0;
+    // --- Training Variables ---
+    double loss = 0.0; // Total loss over all epochs, never reset to 0 at the begining of each epoch
+    cc_tokenizer::string_character_traits<char>::size_type counter = 0; // Total number of steps across all epochs, this as well is never set to 0 a the start of each epoch
 
     cc_tokenizer::string_character_traits<char>::size_type* ptr = NULL;
 
@@ -222,7 +223,16 @@ int main(int argc, char* argv[])
                 parser.reset(TOKENS);
             }
  
-            // Line by line read of the encoder output
+            /*
+                Line by line read of the encoder output
+                ---------------------------------------
+                The eoutput (encoder output) is read as a full mntpl × d_model block from file,
+                meaning the padding rows of eoutput are whatever was in the file for that line (likely zeros).
+                The forward pass then computes logits for all mntpl rows including padding,
+                and the train loop iterates label.getN() positions stopping at INDEX_NOT_FOUND_AT_VALUE.
+                Make sure the encoder output file was generated with zeros in padding positions,
+                otherwise the forward pass will compute logits on garbage embeddings.
+            */
             eoutput.read(filename);
             // Uncomment to debug
             /*for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < eoutput.getShape().getN(); i++)

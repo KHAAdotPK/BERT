@@ -132,19 +132,19 @@
 
     // Layer 1, weights and biases
     // [d_model x d_model]
-    w_hidden_1 = Numcy::Random::randn_xavier<E>(DIMENSIONS{d_model /*Columns*/, d_model /*Rows*/, NULL, NULL}, false);
+    w_hidden_1 = Numcy::Random::randn_xavier<E>(DIMENSIONS{d_model /*Columns*/, d_model /*Rows*/, NULL, NULL}, 42, false);
     // [1 x d_model]
     b_hidden_1 = Numcy::zeros<E>(DIMENSIONS{d_model /*Columns*/, 1 /*Rows*/, NULL, NULL});
 
     // Layer 2, weights and biases
     // [d_model x d_model]
-    w_hidden_2 = Numcy::Random::randn_xavier<E>(DIMENSIONS{d_model /*Columns*/, d_model /*Rows*/, NULL, NULL}, false);
+    w_hidden_2 = Numcy::Random::randn_xavier<E>(DIMENSIONS{d_model /*Columns*/, d_model /*Rows*/, NULL, NULL}, 42, false);
     // [1 x d_model]
     b_hidden_2 = Numcy::zeros<E>(DIMENSIONS{d_model /*Columns*/, 1 /*Rows*/, NULL, NULL});
 
     // Layer 3, weights and biases
     // [d_model x vocab_size]
-    w_output = Numcy::Random::randn_xavier<E>(DIMENSIONS{vocab.numberOfUniqueTokens() /*Columns*/, d_model /*Rows*/, NULL, NULL}, false);
+    w_output = Numcy::Random::randn_xavier<E>(DIMENSIONS{vocab.numberOfUniqueTokens() /*Columns*/, d_model /*Rows*/, NULL, NULL}, 42, false);
     // [1 x vocab_size]
     b_output = Numcy::zeros<E>(DIMENSIONS{vocab.numberOfUniqueTokens() /*Columns*/, 1 /*Rows*/, NULL, NULL});
 

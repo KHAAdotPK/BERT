@@ -3,6 +3,8 @@
     Q@hackers.pk    
  */
 
+ // The three-layer FFN head (Hidden1 → ReLU → Hidden2 → ReLU → Output → Softmax → CE Loss (Cross Entropy Loss) for an MLM projection head.
+
 #ifndef KHAA_PK_BERT_MLM_HH
 #define KHAA_PK_BERT_MLM_HH
 
@@ -196,7 +198,26 @@
  {    
  }
 
-// Forward pass is done, now we need to backpropagate/compute the error/gradient through all n layers.
+/*
+   Forward pass is done, now we need to backpropagate/compute the error/gradient through all n layers.
+
+   TODO, Gradient clipping
+   With DEFAULT_LEARNING_RATE 0.01 and no gradient clipping, the training is susceptible to gradient explosion, especially in early epochs.
+   Adding a simple norm clip after accumulation is protective.
+
+   // Before the weight update block:
+   double grad_norm = 0.0;
+   for (size_t i = 0; i < dOutput_dw.getShape().getN(); i++)
+       grad_norm += dOutput_dw[i] * dOutput_dw[i];
+   // ... sum all accumulators ...
+   grad_norm = sqrt(grad_norm);
+   double max_norm = 1.0;
+   if (grad_norm > max_norm)
+   {
+      double scale_clip = max_norm / grad_norm;
+      // multiply all accumulated gradients by scale_clip before update
+   }
+ */
 template <typename E = double, typename F = cc_tokenizer::string_character_traits<char>::int_type>
 Collective<E> MLM<E, F>::backward_propagation(Collective<E>& eo, /*The original input embedding [mntpl x d_model]*/ Collective<E>& dLogits /*The error from softmax/loss [mntpl x vocab_size]*/) throw (ala_exception) 
 {    
@@ -219,7 +240,11 @@ Collective<E> MLM<E, F>::backward_propagation(Collective<E>& eo, /*The original 
         // [d_model x mntpl] · [mntpl x vocab_size] = [d_model x vocab_size]         
         Collective<E> h2_transposed_dot_dLogits = Numcy::dot(h2_transposed, dLogits); // Gradient: dL/dW_output = $$H_{2}^{T}$$ · dLogits           
         // [mntpl x vocab_size] -> [1 x vocab_size]
-        Collective<E> dLogits_sum = Numcy::sum(dLogits, AXIS_COLUMN); // Gradient: dL/db_output = sum(dLogits)        
+        Collective<E> dLogits_sum = Numcy::sum(dLogits, AXIS_COLUMN); // Gradient: dL/db_output = sum(dLogits)
+        /*
+            Accumulate gradients (summing up gradients from all tokens in the batch)
+            Accumulate gradients, then divide by GRADIENT_ACCUMULATION_STEPS to average, then update and reset. 
+         */
         this->dOutput_dw = this->dOutput_dw + h2_transposed_dot_dLogits;
         this->dOutput_db = this->dOutput_db + dLogits_sum;
 
@@ -296,6 +321,10 @@ Collective<E> MLM<E, F>::backward_propagation(Collective<E>& eo, /*The original 
         Collective<E> h1_transposed = Numcy::transpose(this->last_hidden_activated_1);
         Collective<E> /*h1_transposed_dot_dH2*/ dW_hidden_2 = Numcy::dot(h1_transposed, dH2);
         Collective<E> /*dH2_sum*/ db_hidden_2 = Numcy::sum(dH2, AXIS_COLUMN);
+        /*
+            Accumulate gradients (summing up gradients from all tokens in the batch)
+            Accumulate gradients, then divide by GRADIENT_ACCUMULATION_STEPS to average, then update and reset. 
+         */
         this->dHidden_dw_2 = this->dHidden_dw_2 + /*h1_transposed_dot_dH2*/ dW_hidden_2;
         this->dHidden_db_2 = this->dHidden_db_2 + /*dH2_sum*/ db_hidden_2;
 
@@ -349,7 +378,10 @@ Collective<E> MLM<E, F>::backward_propagation(Collective<E>& eo, /*The original 
         Collective<E> /*eo_transpose_dot_dH2_dot_w_hidden_2_transposed*/ dW_hidden_1 = Numcy::dot(eo_transposed, /*dH2_dot_w_hidden_2_transposed*/ dH1);
         // Bias gradient: [mntpl × d_model] → [1 × d_model]
         Collective<E> /*dH2_dot_w_hidden_2_transposed_sum*/ db_hidden_1 = Numcy::sum(/*dH2_dot_w_hidden_2_transposed*/ dH1, AXIS_COLUMN);
-        // Accumulate gradients
+        /*
+            Accumulate gradients (summing up gradients from all tokens in the batch)
+            Accumulate gradients, then divide by GRADIENT_ACCUMULATION_STEPS to average, then update and reset. 
+         */
         this->dHidden_dw_1 = this->dHidden_dw_1 + /*eo_transpose_dot_dH2_dot_w_hidden_2_transposed*/ dW_hidden_1;
         this->dHidden_db_1 = this->dHidden_db_1 + /*dH2_dot_w_hidden_2_transposed_sum*/ db_hidden_1;                
     }
@@ -532,8 +564,8 @@ Collective<E> MLM<E, F>::forward_propagation(Collective<E>& eo) throw (ala_excep
         Linear Projection: For every token in the sequence, calculate: input[i] x w_hidden_1 + b_hidden_1  
      */
 
-    // Layer 1. Input to hidden transformation
-    // ---------------------------------------
+    // Layer 1. Input to hidden transformation (caching (last_hidden_raw_1 / last_hidden_activated_1) for backpropagation chain rule)
+    // ------------------------------------------------------------------------------------------------------------------------------
     // [mntpl x d_model] * [d_model x d_model] = [mntpl x d_model]
     this->last_hidden_raw_1 = Numcy::dot(eo, this->w_hidden_1); // $$Z_{1} = input \cdot w_{hidden_1}$$ // Linear transformation step 1
     // [mntpl x d_model] + [1 x d_model] = [mntpl x d_model]
@@ -541,8 +573,8 @@ Collective<E> MLM<E, F>::forward_propagation(Collective<E>& eo) throw (ala_excep
     // [mntpl x d_model]  
     this->last_hidden_activated_1 = Numcy::ReLU(this->last_hidden_raw_1); // $$H_{1} = \text{ReLU}(Z_{1})$$ // Activation function
 
-    // Layer 2. Hidden to hidden transformation
-    // ----------------------------------------
+    // Layer 2. Hidden to hidden transformation (caching (last_hidden_raw_2 / last_hidden_activated_2) for backpropagation chain rule)
+    // -------------------------------------------------------------------------------------------------------------------------------
     // [mntpl x d_model] * [d_model x d_model] = [mntpl x d_model]
     this->last_hidden_raw_2 = Numcy::dot(this->last_hidden_activated_1, this->w_hidden_2); // $$Z_{2} = H_{1} \cdot w_{hidden_2}$$ // Linear transformation step 1
     // [mntpl x d_model] + [1 x d_model] = [mntpl x d_model]
@@ -617,7 +649,7 @@ Collective<E> MLM<E, F>::infer(Collective<E>& eo) throw (ala_exception)
  * Training: We need the intermediate results (Hidden Layer) to calculate the gradients
  * ------------------------------------------------------------------------------------
  * MLM Training Function
- * @param original: Original Input Sequence
+ * @param original: Original Input Sequence (Not used in training)
  * @param input: Input Sequence with Masked Tokens
  * @param label: Label Sequence
  * @param eo: Encoder Output Sequence   
@@ -693,7 +725,7 @@ E MLM<E, F>::train(Collective<F>& original, Collective<F>& input, Collective<F>&
             */
             predicted_probabilities = Numcy::softmax(logits_row, NATURAL_TEMPERATURE); // Probabilities for just one row of logits, each token of the sequence has its own logits row.
 
-            if (label[i] != IGNORE_INDEX)
+            if (label[i] != IGNORE_INDEX) // Non Ignore
             {
                 if (input[i] == MASK_TOKEN_ID)
                 {
@@ -709,7 +741,11 @@ E MLM<E, F>::train(Collective<F>& original, Collective<F>& input, Collective<F>&
                 // Gradient: probability - 1 for correct class, probability - 0 for others
                 dLogits[i*dLogits.getShape().getNumberOfColumns() + idx - INDEX_ORIGINATES_AT_VALUE] = predicted_probabilities[idx - INDEX_ORIGINATES_AT_VALUE] - 1;
 
-                // Gradient: probability - 0 for others
+                /*
+                    Gradient: probability - 0 for others. dLogits includes non-IGNORE_INDEX rows with predicted_probabilities[j] - 0
+                    This is mathematically correct for cross-entropy with one-hot targets.
+                    The gradient for position j != idx should indeed be p_j (not zero), since ∂CE/∂logit_j = p_j - y_j and y_j = 0 for all non-target (j != idx) classes.
+                 */
                 for (cc_tokenizer::string_character_traits<char>::size_type j = 0; j < predicted_probabilities.getShape().getN(); j++)
                 {
                     if (j != idx - INDEX_ORIGINATES_AT_VALUE)
@@ -721,7 +757,7 @@ E MLM<E, F>::train(Collective<F>& original, Collective<F>& input, Collective<F>&
                 loss += -log(predicted_probabilities[idx - INDEX_ORIGINATES_AT_VALUE] + EPSILON);
                 mask_count++;
             }
-            // NOTE :- DONOT REMOVE FOLLOWING COMMENT BLOCK, KEEP IT FOR DOCUMENTATION PURPOSES
+            /* NOTE :- DONOT REMOVE FOLLOWING COMMENTED CODE BLOCK, KEEP IT FOR DOCUMENTATION PURPOSES */
             /*else // IGNORE_INDEX positions, we are not setting gradients for IGNORE_INDEX positions
             {
                 for (cc_tokenizer::string_character_traits<char>::size_type j = 0; j < predicted_probabilities.getShape().getN(); j++)
@@ -732,10 +768,29 @@ E MLM<E, F>::train(Collective<F>& original, Collective<F>& input, Collective<F>&
                          
             idx = 0;
         }
+        /*
+            Average the loss by mask_count
+            --------------------------------
+            This makes the loss on a same scale as the loss being reporting/returned.
+            Without this, the loss grows with the number of masked tokens per line, making training inconsistent.
+         */
         if (mask_count > 0)
         {
             loss /= mask_count;
         }
+
+        /*
+            Normalize dLogits before backpropagation
+            ----------------------------------------
+            After computing dLogits and after averaging the loss by mask_count, divide dLogits by mask_count before passing it to backward_propagation().
+            This makes the weight gradients on a same scale as the loss being reporting/returned.
+
+            Without this, the gradient magnitudes grow with the number of masked tokens per line, making training inconsistent.
+         */
+         if (mask_count > 0)
+         {
+            dLogits = dLogits * (1.0 / mask_count);
+         }
 
         // 3. BACK PROPAGATION
         /*Collective<E> dEo =*/ this->backward_propagation(eo, dLogits);

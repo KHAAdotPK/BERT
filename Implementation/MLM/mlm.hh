@@ -137,23 +137,40 @@
         Xavier adjacent or xavier adjacent initialization: A widely used method in deep learning to initialize the weights of a neural network to prevent vanishing or exploding gradients. It is also known as Glorot initialization. 
      */
 
+    /*
+        Xavier vs He initialization
+        ---------------------------
+        Xavier initialization is a weight initialization technique used in neural networks to prevent vanishing or exploding gradients. It is particularly useful for networks with symmetric activation functions like tanh or sigmoid.
+        He initialization is a weight initialization technique used in neural networks to prevent vanishing or exploding gradients. It is particularly useful for networks with non-symmetric activation functions like ReLU or GELU.
+
+        This implementation is using ReLU activations hidden layers (common in modern transformers/MLM heads), Xavier is slightly suboptimal and "He" initialization would be better.
+        Xavier is ideal for tanh/sigmoid.
+        If you're using GELU (like original BERT), Xavier is acceptable but "He" is arguably more appropriate.
+     */ 
+    
+    /*
+        Why zero-initialized biases?
+        --------------------------
+        In the beginning, all neurons in a layer are identical. If you initialize the biases to zero, they will all compute the same output for the same input. As the network trains, the gradients will update the biases, and they will start to differentiate. This allows the network to learn different features at different positions.
+     */
+
     // Layer 1, weights and biases
     // [d_model x d_model]
-    w_hidden_1 = Numcy::Random::randn_xavier<E>(DIMENSIONS{d_model /*Columns*/, d_model /*Rows*/, NULL, NULL}, 42, false);
+    w_hidden_1 = Numcy::Random::randn_xavier<E>(DIMENSIONS{d_model /*Columns*/, d_model /*Rows*/, NULL, NULL}, 42, false); // Weight
     // [1 x d_model]
-    b_hidden_1 = Numcy::zeros<E>(DIMENSIONS{d_model /*Columns*/, 1 /*Rows*/, NULL, NULL});
+    b_hidden_1 = Numcy::zeros<E>(DIMENSIONS{d_model /*Columns*/, 1 /*Rows*/, NULL, NULL}); // Bias
 
     // Layer 2, weights and biases
     // [d_model x d_model]
-    w_hidden_2 = Numcy::Random::randn_xavier<E>(DIMENSIONS{d_model /*Columns*/, d_model /*Rows*/, NULL, NULL}, 43, false);
+    w_hidden_2 = Numcy::Random::randn_xavier<E>(DIMENSIONS{d_model /*Columns*/, d_model /*Rows*/, NULL, NULL}, 43, false); // Weight
     // [1 x d_model]
-    b_hidden_2 = Numcy::zeros<E>(DIMENSIONS{d_model /*Columns*/, 1 /*Rows*/, NULL, NULL});
+    b_hidden_2 = Numcy::zeros<E>(DIMENSIONS{d_model /*Columns*/, 1 /*Rows*/, NULL, NULL}); // Bias
 
     // Layer 3, weights and biases
     // [d_model x vocab_size]
-    w_output = Numcy::Random::randn_xavier<E>(DIMENSIONS{vocab.numberOfUniqueTokens() /*Columns*/, d_model /*Rows*/, NULL, NULL}, 44, false);
+    w_output = Numcy::Random::randn_xavier<E>(DIMENSIONS{vocab.numberOfUniqueTokens() /*Columns*/, d_model /*Rows*/, NULL, NULL}, 44, false); // Weight
     // [1 x vocab_size]
-    b_output = Numcy::zeros<E>(DIMENSIONS{vocab.numberOfUniqueTokens() /*Columns*/, 1 /*Rows*/, NULL, NULL});
+    b_output = Numcy::zeros<E>(DIMENSIONS{vocab.numberOfUniqueTokens() /*Columns*/, 1 /*Rows*/, NULL, NULL}); // Bias 
 
     /*
         Gradient Accumulation

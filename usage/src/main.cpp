@@ -178,6 +178,19 @@ int main(int argc, char* argv[])
             1. 80% chance: Replace the token ID with your MASK_TOKEN_ID ID.
             2. 10% chance: Replace it with a random word ID from the vocabulary.
             3. 10% chance: Leave it as the original word.
+
+            The choice_array shuffle doesn't implement 80/10/10 correctly
+            -------------------------------------------------------------
+            Fill choice_array = [80, 90, 100], shuffle it, then check choice_array[0].
+            After shuffling, each of the three values has equal 1/3 probability of being first, giving 33/33/33 and not 80/10/10. 
+
+            To properly implement 80/10/10 we need some thing like:
+            int roll = gen() % 100; // 0-99
+            ```cpp
+                if (roll < 80)       {  } // MASK
+                else if (roll < 90)  {  } // RANDOM
+                else                 {  } // KEEP
+            ```
          */
         choice_array = cc_tokenizer::allocator<cc_tokenizer::string_character_traits<char>::int_type>().allocate(3);
         choice_array[0] = 80;
@@ -191,180 +204,179 @@ int main(int argc, char* argv[])
         {         
             std::cout<< "Epoch: " << i + 1 << " of " << default_epochs << " epochs." << std::endl;
 
-        // Implementation of the triple buffer
-        while (parser.go_to_next_line() != cc_tokenizer::string_character_traits<char>::eof())
-        { 
-            ntpl = parser.get_total_number_of_tokens(); // Number of tokens per line
-            nmtpl = std::ceil(ntpl * MLM_PROBABILITY); // Number of masked tokens per line
+            // Implementation of the triple buffer
+            while (parser.go_to_next_line() != cc_tokenizer::string_character_traits<char>::eof())
+            { 
+                ntpl = parser.get_total_number_of_tokens(); // Number of tokens per line
+                nmtpl = std::ceil(ntpl * MLM_PROBABILITY); // Number of masked tokens per line
 
-            std::shuffle(indices, indices + mntpl, gen); // Shuffling the indices
+                std::shuffle(indices, indices + mntpl, gen); // Shuffling the indices
 
-            /*
-                Zero out the extra space in the original, input and label arrays
-             */
-            for (cc_tokenizer::string_character_traits<char>::size_type i = ntpl; i < mntpl; i++)
-            {
-                original[i] = 0;
-                input[i] = 0;
-                label[i] = 0;
-            }  
+                /*
+                    Zero out the extra space in the original, input and label arrays
+                */
+                for (cc_tokenizer::string_character_traits<char>::size_type i = ntpl; i < mntpl; i++)
+                {
+                    original[i] = 0;
+                    input[i] = 0;
+                    label[i] = 0;
+                }  
             
-            {
-                int i = 0;
-                while (parser.go_to_next_token() != cc_tokenizer::string_character_traits<char>::eof()) // Number of tokens in this line, there are ntpl many tokens in each line
                 {
-                    original[i] = vocab(parser.get_current_token()); // Store the original token ID as the 'Target' (Label)
-                    input[i] = original[i]; // Copy the original token ID to the input array
+                    int i = 0;
+                    while (parser.go_to_next_token() != cc_tokenizer::string_character_traits<char>::eof()) // Number of tokens in this line, there are ntpl many tokens in each line
+                    {
+                        original[i] = vocab(parser.get_current_token()); // Store the original token ID as the 'Target' (Label)
+                        input[i] = original[i]; // Copy the original token ID to the input array
 
-                    label[i] = IGNORE_INDEX; // Initialize the label array with IGNORE_INDEX
+                        label[i] = IGNORE_INDEX; // Initialize the label array with IGNORE_INDEX
 
-                    i++;
+                        i++;
+                    }
+                    parser.reset(TOKENS);
                 }
-                parser.reset(TOKENS);
-            }
  
-            /*
-                Line by line read of the encoder output
-                ---------------------------------------
-                The eoutput (encoder output) is read as a full mntpl × d_model block from file,
-                meaning the padding rows of eoutput are whatever was in the file for that line (likely zeros).
-                The forward pass then computes logits for all mntpl rows including padding,
-                and the train loop iterates label.getN() positions stopping at INDEX_NOT_FOUND_AT_VALUE.
-                Make sure the encoder output file was generated with zeros in padding positions,
-                otherwise the forward pass will compute logits on garbage embeddings.
-            */
-            eoutput.read(filename);
-            // Uncomment to debug
-            /*for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < eoutput.getShape().getN(); i++)
-            {                
-                if (i % eoutput.getShape().getNumberOfColumns() == 0)
-                {
-                    std::cout<< std::endl;
+                /*
+                    Line by line read of the encoder output
+                    ---------------------------------------
+                    The eoutput (encoder output) is read as a full mntpl × d_model block from file,
+                    meaning the padding rows of eoutput are whatever was in the file for that line (likely zeros).
+                    The forward pass then computes logits for all mntpl rows including padding,
+                    and the train loop iterates label.getN() positions stopping at INDEX_NOT_FOUND_AT_VALUE.
+                    Make sure the encoder output file was generated with zeros in padding positions,
+                    otherwise the forward pass will compute logits on garbage embeddings.
+                */
+                eoutput.read(filename);
+                // Uncomment to debug
+                /*for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < eoutput.getShape().getN(); i++)
+                {                
+                    if (i % eoutput.getShape().getNumberOfColumns() == 0)
+                    {
+                        std::cout<< std::endl;
+                    }
+                    std::cout<< eoutput[i] << " ";
                 }
-                std::cout<< eoutput[i] << " ";
-            }
-            std::cout<< std::endl;*/
+                std::cout<< std::endl;*/
                          
-            /*
-                Strategy: Unique Mask Selection via Shuffled Index Pool
-                ------------------------------------------------------
-                To satisfy the 15% masking quota without redundant selection, we 
-                draw from a pre-shuffled pool of available sequence positions. 
-                
-                By tracking our position in the shuffled pool with 'pool_cursor', 
-                we guarantee that each selected mask index is unique for the 
-                current line, ensuring the mathematical integrity of the MLM task.
-            */
-            cc_tokenizer::string_character_traits<char>::size_type pool_cursor = 0;
-            for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < nmtpl; i++) // Number of masked tokens per line
-            {
-                for (cc_tokenizer::string_character_traits<char>::size_type j = pool_cursor; j < mntpl; j++) // Maximum number of tokens per line
+                /*
+                    Strategy: Unique Mask Selection via Shuffled Index Pool
+                    ------------------------------------------------------
+                    To satisfy the 15% masking quota without redundant selection, we 
+                    draw from a pre-shuffled pool of available sequence positions. 
+                    
+                    By tracking our position in the shuffled pool with 'pool_cursor', 
+                    we guarantee that each selected mask index is unique for the 
+                    current line, ensuring the mathematical integrity of the MLM task.
+                */
+                cc_tokenizer::string_character_traits<char>::size_type pool_cursor = 0;
+                for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < nmtpl; i++) // Number of masked tokens per line
                 {
-                    if (indices[j] < ntpl) // Creating a Mutation Map
-                    {   
-                        if (arg_verbose.i)
-                        {
-                            std::cout<< parser.get_token_by_number(indices[j] + 1).c_str() << " ["; 
-                        }
-
-                        std::shuffle(choice_array, choice_array + 3, gen);
-
-                        if (choice_array[0] == 80) // Maksed
-                        {
-                            /* *   STRATEGY: Explicit Masking
-                               *   Replace the input token with a dedicated [MASK] ID.
-                               *   Challenge: Forces the model to reconstruct the token purely from bidirectional context.
-                             */ 
+                    for (cc_tokenizer::string_character_traits<char>::size_type j = pool_cursor; j < mntpl; j++) // Maximum number of tokens per line
+                    {
+                        if (indices[j] < ntpl) // Creating a Mutation Map
+                        {   
                             if (arg_verbose.i)
+                            {
+                                std::cout<< parser.get_token_by_number(indices[j] + 1).c_str() << " ["; 
+                            }
+
+                            std::shuffle(choice_array, choice_array + 3, gen);
+
+                            if (choice_array[0] == 80) // Maksed
+                            {
+                                /* * STRATEGY: Explicit Masking
+                                 *   Replace the input token with a dedicated [MASK] ID.
+                                 *   Challenge: Forces the model to reconstruct the token purely from bidirectional context.
+                                 */ 
+                                if (arg_verbose.i)
+                                { 
+                                    std::cout<< "MASKED";
+                                }
+                                label[indices[j]] = input[indices[j]]; // Store original ID for loss calculation
+                                input[indices[j]] = MASK_TOKEN_ID;     // Replace with [MASK] symbol
+                            }
+                            else if (choice_array[0] == 90) // Random/Damage                        
                             { 
-                                std::cout<< "MASKED";
-                            }
-                            label[indices[j]] = input[indices[j]]; // Store original ID for loss calculation
-                            input[indices[j]] = MASK_TOKEN_ID;     // Replace with [MASK] symbol
-                        }
-                        else if (choice_array[0] == 90) // Random/Damage                        
-                        { 
-                            std::shuffle(vocab_indices, vocab_indices + vocab.numberOfUniqueTokens(), gen); // Shuffling the vocabulary indices
+                                std::shuffle(vocab_indices, vocab_indices + vocab.numberOfUniqueTokens(), gen); // Shuffling the vocabulary indices
 
-                            /* * STRATEGY: Noise Injection (Damage)
-                               * Replace the input token with a random word from the vocabulary.
-                               * Challenge: Prevents the model from assuming that only [MASK] symbols need error correction.
-                               * It must verify if the word actually "fits" the surrounding symptoms.
-                             */
+                                /* * STRATEGY: Noise Injection (Damage)
+                                 *   Replace the input token with a random word from the vocabulary.
+                                 *   Challenge: Prevents the model from assuming that only [MASK] symbols need error correction.
+                                 *   It must verify if the word actually "fits" the surrounding symptoms.
+                                 */
+                                if (arg_verbose.i)
+                                {
+                                    std::cout<< "RANDOM/DAMAGE";
+                                }
+                                label[indices[j]] = input[indices[j]]; // Store original ID for loss calculation
+                                input[indices[j]] = vocab_indices[0];  // Inject random word noise 
+                            }
+                            else if (choice_array[0] == 100) // Keep
+                            {  
+                                /* * STRATEGY: Identity Mapping (Keep)
+                                 *   Leave the input token unchanged, but still include it in the label/loss targets.
+                                 *   Challenge: The "magic" of BERT. The model sees the correct word but doesn't 
+                                 *   know if it is a 'test' or just context. This biases the representation 
+                                 *   toward the actual observed word.
+                                 */                         
+                                if (arg_verbose.i)
+                                {
+                                    std::cout<< "KEEP";
+                                }
+                                label[indices[j]] = input[indices[j]]; // The 'label' gets the original ID, and 'input' remains as it was (the original ID).
+                            }
+
                             if (arg_verbose.i)
                             {
-                                std::cout<< "RANDOM/DAMAGE";
+                                std::cout<< "] ";
                             }
-                            label[indices[j]] = input[indices[j]]; // Store original ID for loss calculation
-                            input[indices[j]] = vocab_indices[0];  // Inject random word noise 
-                        }
-                        else if (choice_array[0] == 100) // Keep
-                        {  
-                             /* * STRATEGY: Identity Mapping (Keep)
-                               * Leave the input token unchanged, but still include it in the label/loss targets.
-                               * Challenge: The "magic" of BERT. The model sees the correct word but doesn't 
-                               * know if it is a 'test' or just context. This biases the representation 
-                               * toward the actual observed word.
-                             */                         
-                            if (arg_verbose.i)
-                            {
-                                std::cout<< "KEEP";
-                            }
-                            label[indices[j]] = input[indices[j]]; // The 'label' gets the original ID, and 'input' remains as it was (the original ID).
-                        }
-
-                        if (arg_verbose.i)
-                        {
-                            std::cout<< "] ";
-                        }
                                              
-                        pool_cursor = j + 1;
-                        break;
+                            pool_cursor = j + 1;
+                            break;
+                        }
                     }
                 }
-            }
         
-            if (arg_verbose.i)
-            {
-                std::cout<< std::endl;
-                for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < original.getShape().getN(); i++)
+                if (arg_verbose.i)
                 {
-                    printf("%d ", original[i]);
+                    std::cout<< std::endl;
+                    for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < original.getShape().getN(); i++)
+                    {
+                        printf("%d ", original[i]);
+                    }
+                    std::cout<< std::endl;                        
+                    for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < input.getShape().getN(); i++)
+                    {
+                        printf("%d ", input[i]);
+                    }            
+                    std::cout<< std::endl;
+                    for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < label.getShape().getN(); i++)
+                    {
+                        printf("%d ", label[i]);
+                    }            
+                    std::cout<< std::endl;
                 }
-                std::cout<< std::endl;                        
-                for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < input.getShape().getN(); i++)
-                {
-                    printf("%d ", input[i]);
-                }            
-                std::cout<< std::endl;
-                for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < label.getShape().getN(); i++)
-                {
-                    printf("%d ", label[i]);
-                }            
-                std::cout<< std::endl;
-            }
             
-            // -------------------------------------- //
-            // Start training the model for one step  //
-            // -------------------------------------- //
-            loss = loss + mlm.train(original, input, label, eoutput, default_learning_rate);
-            //loss = loss +  mlm.train_old(original, input, label, eoutput, default_learning_rate);
+                // -------------------------------------- //
+                // Start training the model for one step  //
+                // -------------------------------------- //
+                loss = loss + mlm.train(original, input, label, eoutput, default_learning_rate);
+                //loss = loss +  mlm.train_old(original, input, label, eoutput, default_learning_rate);
 
-            counter++;
+                counter++;
 
-            if (counter % PRINT_DEBUG_INFO_EVERY == 0)
-            {
-                std::cout<< "Step: " << counter << " | Average Loss: " << loss / counter << std::endl;
-            }
-        } // End while()
+                if (counter % PRINT_DEBUG_INFO_EVERY == 0)
+                {
+                    std::cout<< "Step: " << counter << " | Average Loss: " << loss / counter << std::endl;
+                }
+            } // End while()
 
-        parser.reset(LINES);
-        parser.reset(TOKENS);
+            parser.reset(LINES);
+            parser.reset(TOKENS);
 
-        // Close file here
-        eoutput.close_read();
-
-    } // End for
+            // Close file here
+            eoutput.close_read();
+        } // End for
 
         /*
          * ---------------------------------------

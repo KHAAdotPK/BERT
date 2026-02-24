@@ -220,7 +220,9 @@
  */
 template <typename E = double, typename F = cc_tokenizer::string_character_traits<char>::int_type>
 Collective<E> MLM<E, F>::backward_propagation(Collective<E>& eo, /*The original input embedding [mntpl x d_model]*/ Collective<E>& dLogits /*The error from softmax/loss [mntpl x vocab_size]*/) throw (ala_exception) 
-{    
+{   
+    Collective<E> dEo;
+
     try
     {
         // ===================================================================================================
@@ -384,6 +386,12 @@ Collective<E> MLM<E, F>::backward_propagation(Collective<E>& eo, /*The original 
          */
         this->dHidden_dw_1 = this->dHidden_dw_1 + /*eo_transpose_dot_dH2_dot_w_hidden_2_transposed*/ dW_hidden_1;
         this->dHidden_db_1 = this->dHidden_db_1 + /*dH2_dot_w_hidden_2_transposed_sum*/ db_hidden_1;                
+
+
+        // Compute gradient with respect to input (eo) to pass back to previous layer
+        Collective<E> w_hidden_1_transposed = Numcy::transpose(this->w_hidden_1);
+        dEo = Numcy::dot(dH1, w_hidden_1_transposed); 
+
     }
     catch (const std::exception& e)
     {
@@ -391,7 +399,27 @@ Collective<E> MLM<E, F>::backward_propagation(Collective<E>& eo, /*The original 
         throw ala_exception(message); 
     }
 
-    return Collective<E>{NULL, DIMENSIONS{0, 0, NULL, NULL}}; 
+    // Rrturn dEo, which will be fed into the previous layer (e.g. Transformer Encoder Layer)
+    /*
+        The MLM layer is the last layer in the BERT model, so it does not need to return dEo.
+        The dEo is only needed for the previous layer to calculate its gradients.
+
+        The backward_propagation() currently returns Collective<E>{NULL, ...};
+        that return value would need to carry dEo (gradient w.r.t. encoder output) back to the encoder's own backward pass.
+     */
+    /*
+        The MLM layer is the last layer in the BERT model, so it does not need to return dEo.
+        The dEo is only needed for the previous layer to calculate its gradients.
+
+        ∂L/∂eo = ∂L/∂Z₁ · ∂Z₁/∂eo = dH1 · W_hidden_1ᵀ
+
+     */
+    // Compute gradient with respect to input (eo) to pass back to previous layer
+    //Collective<E> w_hidden_1_transposed = Numcy::transpose(this->w_hidden_1);
+    //Collective<E> dEo = Numcy::dot(dH1, w_hidden_1_transposed); 
+
+    return dEo;
+    //return Collective<E>{NULL, DIMENSIONS{0, 0, NULL, NULL}}; 
 }
 
 /*
@@ -793,7 +821,7 @@ E MLM<E, F>::train(Collective<F>& original, Collective<F>& input, Collective<F>&
          }
 
         // 3. BACK PROPAGATION
-        /*Collective<E> dEo =*/ this->backward_propagation(eo, dLogits);
+        Collective<E> dEo = this->backward_propagation(eo, dLogits);
 
         // 4. GRADIENT ACCUMULATION & WEIGHT UPDATE
         this->gradient_accumulation_steps_counter++;

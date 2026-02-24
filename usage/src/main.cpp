@@ -430,42 +430,61 @@ int main(int argc, char* argv[])
 
             //std::cout<< "Logits, ROWS = " << logits.getShape().getNumberOfRows() << ", COLS = " << logits.getShape().getNumberOfColumns() << std::endl;
 
+            // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+            // GET THE LOGITS FOR EACH TOKEN, START HERE
+            // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
             for (cc_tokenizer::string_character_traits<char>::size_type i = 0; i < ntpl; i++)
-            {                 
+            { 
+                double max_logit = std::numeric_limits<double>::lowest(); // There is no smallest value than the max_logit now             
+                cc_tokenizer::string_character_traits<char>::size_type max_logit_index = 0;
+                
                 logits_row = logits.slice(i*logits.getShape().getNumberOfColumns(), DIMENSIONS{logits.getShape().getNumberOfColumns() /*Columns*/, 1 /*Rows*/, NULL, NULL});
                 predicted_probabilities = Numcy::softmax(logits_row, default_temperature);
 
                 std::cout<< parser.get_token_by_number(i + 1).c_str() << ": ";
 
-                for (cc_tokenizer::string_character_traits<char>::size_type j = 0; j < default_top_k; j++)
+                for (cc_tokenizer::string_character_traits<char>::size_type j = 0; j < default_top_k; j++) // Loop will run for n many times
                 {   
-                    double max_logit = std::numeric_limits<double>::lowest();              
-                    cc_tokenizer::string_character_traits<char>::size_type max_logit_index = 0;
+                    //double max_logit = std::numeric_limits<double>::lowest(); // There is no smallest value than the max_logit now             
+                    //cc_tokenizer::string_character_traits<char>::size_type max_logit_index = 0;
+                    if (max_logit != std::numeric_limits<double>::lowest())
+                    {
+                        if (arg_temperature.i)
+                        {
+                            predicted_probabilities[max_logit_index] = std::numeric_limits<double>::lowest();
+                            max_logit = std::numeric_limits<double>::lowest(); 
+                        }
+                        else
+                        {
+                            logits[i*logits.getShape().getNumberOfColumns() + max_logit_index] = std::numeric_limits<double>::lowest();
+                            max_logit = std::numeric_limits<double>::lowest(); 
+                        }
+                    }
 
                     /*
                         TODO, improvement: If the very first logit or probability (index 0) happens to be the largest, you suppress it immediately,
                         and then the loop continues to find the next largest value within the same pass.
                      */
-                    for (cc_tokenizer::string_character_traits<char>::size_type k = 0; k < logits.getShape().getNumberOfColumns(); k++)
+                    for (cc_tokenizer::string_character_traits<char>::size_type k = 0; k < logits.getShape().getNumberOfColumns(); k++) // Go through logits one by one find the largets logit or probability
                     {
                         if (arg_temperature.i)
-                        {
-                            if (predicted_probabilities[k] > max_logit)
+                        {                            
+                            if (predicted_probabilities[k] > max_logit) // If the current logit is greater than the max_logit
                             {
-                                max_logit = predicted_probabilities[k];
-                                max_logit_index = k;
+                                max_logit = predicted_probabilities[k]; // Copy logit or probability
+                                max_logit_index = k; // Index of the max logit or probability
 
-                                predicted_probabilities[max_logit_index] = std::numeric_limits<double>::lowest();
+                                //predicted_probabilities[max_logit_index] = std::numeric_limits<double>::lowest(); // Set the current logit or probability to the lowest value so that it is not considered in the next iteration
                             }
                         }
-                        else
+                        else // If we are not using temperature
                         {
-                            if (logits[i*logits.getShape().getNumberOfColumns() + k] > max_logit)
+                            if (logits[i*logits.getShape().getNumberOfColumns() + k] > max_logit) // If for ith token the current logit is greater than the max_logit
                             {
-                                max_logit = logits[i*logits.getShape().getNumberOfColumns() + k];
-                                max_logit_index = k;
+                                max_logit = logits[i*logits.getShape().getNumberOfColumns() + k]; // Copy logit or probability
+                                max_logit_index = k; // Index of the max logit or probability
 
-                                logits[i*logits.getShape().getNumberOfColumns() + max_logit_index] = std::numeric_limits<double>::lowest(); 
+                                //logits[i*logits.getShape().getNumberOfColumns() + max_logit_index] = std::numeric_limits<double>::lowest(); // Set the current logit or probability to the lowest value so that it is not considered in the next iteration
                             }
                         }
 
@@ -476,12 +495,16 @@ int main(int argc, char* argv[])
 
                             max_logit_index = k;
                         }*/
-                    }                    
+                    }
+                    // We have the current largest logit or probability and its index, print it out  
                     std::cout<< max_logit_index << ", " << max_logit << " -> " << vocab[max_logit_index + INDEX_ORIGINATES_AT_VALUE].c_str() << std::endl;
                     //logits[i*logits.getShape().getNumberOfColumns() + max_logit_index] = std::numeric_limits<double>::lowest();                    
                     //predicted_probabilities[max_logit_index] = std::numeric_limits<double>::lowest();
                 }
-            }                
+            }
+            // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+            // GET THE LOGITS FOR EACH TOKEN, END HERE
+            // ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------                   
         }
         std::cout<< std::endl;        
         // ------------------------------------------------------------------------------------------------------------------

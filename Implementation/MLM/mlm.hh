@@ -387,39 +387,36 @@ Collective<E> MLM<E, F>::backward_propagation(Collective<E>& eo, /*The original 
         this->dHidden_dw_1 = this->dHidden_dw_1 + /*eo_transpose_dot_dH2_dot_w_hidden_2_transposed*/ dW_hidden_1;
         this->dHidden_db_1 = this->dHidden_db_1 + /*dH2_dot_w_hidden_2_transposed_sum*/ db_hidden_1;                
 
-
         // Compute gradient with respect to input (eo) to pass back to previous layer
+        /*
+            dEo = dH1 * w_hidden_1^T
+            dH1 [mntpl × d_model]
+            w_hidden_1_transposed [d_model × d_model]
+            dEo [mntpl × d_model]
+        */
         Collective<E> w_hidden_1_transposed = Numcy::transpose(this->w_hidden_1);
         dEo = Numcy::dot(dH1, w_hidden_1_transposed); 
-
     }
     catch (const std::exception& e)
     {
         cc_tokenizer::String<char> message = cc_tokenizer::String<char>("MLM::backward_propagation(Collective<E>&, Collective<E>&) -> ") + cc_tokenizer::String<char>(e.what());
         throw ala_exception(message); 
     }
+    
+    /*    
+        The dEo is only needed for the previous layer to calculate its gradients
+                
+        dH1           [mntpl × d_model]
+        w_hidden_1_transposed [d_model × d_model]
+        dEo [mntpl × d_model]
 
-    // Rrturn dEo, which will be fed into the previous layer (e.g. Transformer Encoder Layer)
-    /*
-        The MLM layer is the last layer in the BERT model, so it does not need to return dEo.
-        The dEo is only needed for the previous layer to calculate its gradients.
-
-        The backward_propagation() currently returns Collective<E>{NULL, ...};
-        that return value would need to carry dEo (gradient w.r.t. encoder output) back to the encoder's own backward pass.
-     */
-    /*
-        The MLM layer is the last layer in the BERT model, so it does not need to return dEo.
-        The dEo is only needed for the previous layer to calculate its gradients.
-
-        ∂L/∂eo = ∂L/∂Z₁ · ∂Z₁/∂eo = dH1 · W_hidden_1ᵀ
-
-     */
-    // Compute gradient with respect to input (eo) to pass back to previous layer
-    //Collective<E> w_hidden_1_transposed = Numcy::transpose(this->w_hidden_1);
-    //Collective<E> dEo = Numcy::dot(dH1, w_hidden_1_transposed); 
-
+        ∂L/∂Z₁ = dH1
+        ∂Z₁/∂eo = 
+        
+        ∂L/∂eo = ∂L/∂Z₁ · ∂Z₁/∂eo = dH1 · w_hidden_1ᵀ
+        $$\partial L / \partial eo = \partial L / \partial Z1 * \partial Z1 / \partial eo = dH1$$ * w_hidden_1 $$^T$$
+     */ 
     return dEo;
-    //return Collective<E>{NULL, DIMENSIONS{0, 0, NULL, NULL}}; 
 }
 
 /*
